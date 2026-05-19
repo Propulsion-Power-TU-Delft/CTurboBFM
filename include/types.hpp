@@ -133,6 +133,10 @@ enum class BodyForceModel {
     LIFT_DRAG,
 };
 
+enum class TurbulenceModel {
+    NONE,
+    SPALART_ALLMARAS,
+};
 
 enum class BoundaryIndex {
     I_START,

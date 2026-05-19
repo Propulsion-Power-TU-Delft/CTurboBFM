@@ -10,6 +10,8 @@
 #include "source_bfm_correlations.hpp"
 #include "source_bfm_lift_drag.hpp"
 #include "greitzer_model.hpp"   
+#include "turbulence_model_base.hpp"
+#include "turbulence_model_sa.hpp"
 #include <unordered_map>
 
 class SolverEuler : public SolverBase {
@@ -195,9 +197,11 @@ private:
     std::map<SolutionName, Matrix3D<Vector3D>> _solutionGrad;
     std::unique_ptr<OutputBase> _output;
     
-    bool _isBfmActive{false};
+    bool _isBfmActive{false}, _isTurbulenceActive{false};
     bool _isGongFormulationActive{false};
     std::unique_ptr<SourceBFMBase> _bfmSource;
+
+    std::unique_ptr<TurbulenceModelBase> _turbulenceModel;
     
     std::vector<StateVector> _logResiduals;
     

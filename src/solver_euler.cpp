@@ -56,6 +56,18 @@ SolverEuler::SolverEuler(Config& config, Mesh& mesh)
     
     _isGongFormulationActive = _config.isGongFormulationActive();
 
+    _isTurbulenceActive = _config.isTurbulenceActive();
+    TurbulenceModel turbulenceModel = _config.getTurbulenceModel();
+    if (turbulenceModel == TurbulenceModel::SPALART_ALLMARAS) {
+        _turbulenceModel = std::make_unique<TurbulenceModelSA>();
+    }
+    else if (turbulenceModel == TurbulenceModel::NONE) {
+        _turbulenceModel = std::make_unique<TurbulenceModelBase>();
+    }
+    else {
+        throw std::runtime_error("Unsupported turbulence model selected.");
+    }
+
 }
 
 

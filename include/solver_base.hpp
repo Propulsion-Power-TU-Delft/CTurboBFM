@@ -56,6 +56,18 @@ public:
         size_t &jLast, 
         size_t &kStart, 
         size_t &kLast) const;
+    
+    void computeWallDistance() ;
+
+    FloatType computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, BoundaryIndex boundaryIdx) const;
+
+    inline const Matrix3D<FloatType> getWallDistance() const {
+        return _wallDistance;
+    }
+
+    inline const Matrix3D<Vector3D> getVertices() const {
+        return _mesh.getVertices();
+    }
 
 
 protected:
@@ -65,6 +77,7 @@ protected:
     Topology _topology;
     
     Matrix3D<FloatType> _timeStep;
+    Matrix3D<FloatType> _wallDistance;
     std::vector<FloatType> _time;
     
     std::unique_ptr<FluidBase> _fluid;

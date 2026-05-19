@@ -41,7 +41,7 @@ SolverBase::SolverBase(Config& config, Mesh& mesh)
     }
 
     readBoundaryConditions();
-
+    computeWallDistance();
     
     
 }
@@ -232,4 +232,49 @@ void SolverBase::getBoundarySliceIndices(
         kStart = _nPointsK-1;
         break;
     }
+}
+
+
+void SolverBase::computeWallDistance() {
+    _wallDistance.resize(_nPointsI, _nPointsJ, _nPointsK);
+    for (size_t i = 0; i < _nPointsI; ++i) {
+        for (size_t j = 0; j < _nPointsJ; ++j) {
+            for (size_t k = 0; k < _nPointsK; ++k) {
+                FloatType minDistance = 1.0E9;
+                FloatType distanceTmp = 1.0E9;
+                for (auto& bound : _boundaryTypes) {
+                    if (bound.second == BoundaryType::INVISCID_WALL || bound.second == BoundaryType::NO_SLIP_WALL){ 
+                        distanceTmp = computeMinimumDistanceToBoundary(i, j, k, bound.first);
+                    }
+                    if (distanceTmp < minDistance){
+                        minDistance = distanceTmp;
+                    }
+                }
+                _wallDistance(i,j,k) = minDistance;
+            }
+        }
+    }
+}
+
+
+FloatType SolverBase::computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, BoundaryIndex boundaryIdx) const {
+    size_t iStart, iLast, jStart, jLast, kStart, kLast;
+    getBoundarySliceIndices(boundaryIdx, iStart, iLast, jStart, jLast, kStart, kLast);
+    
+    FloatType dx, dy, dz;
+    FloatType minDistance = 1.0E9;
+    for (size_t ib = iStart; ib < iLast; ++ib) {
+        for (size_t jb = jStart; jb < jLast; ++jb) {
+            for (size_t kb = kStart; kb < kLast; ++kb) {
+                dx = _mesh.getVertex(i,j,k).x() - _mesh.getVertex(ib,jb,kb).x();
+                dy = _mesh.getVertex(i,j,k).y() - _mesh.getVertex(ib,jb,kb).y();
+                dz = _mesh.getVertex(i,j,k).z() - _mesh.getVertex(ib,jb,kb).z();
+                FloatType distance = std::sqrt(dx*dx + dy*dy + dz*dz);
+                if (distance < minDistance){
+                    minDistance = distance;
+                }
+            }
+        }
+    }
+    return minDistance;
 }
