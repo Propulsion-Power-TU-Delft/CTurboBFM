@@ -164,8 +164,8 @@ private:
     /** @brief set the momentum vector on the nodes belonging to viscous walls */
     void setMomentumSolutionOnViscousWalls(
         FlowSolution &residuals, 
-        const BoundaryIndex &BoundaryIndex, 
-        const Vector3D &wallVelocity) const;
+        const Boundary &boundary,
+        const Vector3D& wallVelocity) const;
     
     /** @brief perform some preprocessing of the solution */
     void preprocessSolution(FlowSolution &solution, bool updateRadialProf = true);

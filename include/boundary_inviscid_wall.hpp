@@ -10,14 +10,12 @@ public:
      * @param config The configuration object.
      * @param mesh The mesh object.
      * @param fluid The fluid object.
-     * @param boundIndex The boundary index.
      */
     BoundaryInviscidWall(
         const Config &config, 
         const Mesh &mesh, 
-        const FluidBase &fluid, 
-        BoundaryIndex boundIndex)
-        : BoundaryBase(config, mesh, fluid, boundIndex) {};
+        const FluidBase &fluid)
+        : BoundaryBase(config, mesh, fluid) {};
         
     virtual ~BoundaryInviscidWall() = default;
 

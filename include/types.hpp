@@ -221,12 +221,13 @@ struct Index {
     size_t k;
 };
 
-struct Boundary {
-    std::string name;
-    BoundaryType type;
-    std::vector<FloatType> values;
-    std::vector<Index> indices; // indices of the boundary cells
-};
+// struct Boundary {
+//     std::string name;
+//     BoundaryType type;
+//     std::vector<FloatType> values;
+//     size_t i_min, i_max, j_min, j_max, k_min, k_max;
+//     std::shared_ptr<BoundaryBase> fluxMethod;
+// };
 
 enum class TimeIntegration {
     RUNGE_KUTTA_4,

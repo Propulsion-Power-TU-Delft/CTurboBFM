@@ -5,9 +5,8 @@ BoundaryInlet2D::BoundaryInlet2D(
     const Config &config, 
     const Mesh &mesh, 
     const FluidBase &fluid, 
-    BoundaryIndex boundIndex, 
     std::string inletFile)
-    : BoundaryBase(config, mesh, fluid, boundIndex) {
+    : BoundaryBase(config, mesh, fluid) {
         
         _referenceFrame = config.getInletReferenceFrame();
         

@@ -22,9 +22,8 @@ public:
         const Config &config, 
         const Mesh &mesh, 
         const FluidBase &fluid, 
-        BoundaryIndex boundIndex, 
         std::vector<FloatType> bcValues)
-        : BoundaryBase(config, mesh, fluid, boundIndex),
+        : BoundaryBase(config, mesh, fluid),
         _boundaryValues(bcValues) {}
         
     virtual ~BoundaryOutlet() {}

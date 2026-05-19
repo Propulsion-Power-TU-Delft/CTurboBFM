@@ -9,9 +9,8 @@ public:
         const Config &config, 
         const Mesh &mesh, 
         const FluidBase &fluid, 
-        BoundaryIndex boundIndex, 
         std::vector<FloatType> inletValues)
-        : BoundaryBase(config, mesh, fluid, boundIndex), 
+        : BoundaryBase(config, mesh, fluid), 
         _boundaryValues(inletValues) {}            
 
     virtual ~BoundaryOutletSupersonic() = default;

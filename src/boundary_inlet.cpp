@@ -7,7 +7,7 @@ StateVector BoundaryInlet::computeBoundaryFlux(
     const Vector3D& midPoint, 
     const std::array<size_t, 3> &indices, 
     const FlowSolution& flowSolution, 
-    const size_t& iterCounter) {
+    const size_t& iterCounter) {    
     
     // gather boundary values from config
     FloatType totPressure = _boundaryValues[0];

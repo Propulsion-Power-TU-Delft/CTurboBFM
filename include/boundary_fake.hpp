@@ -11,9 +11,8 @@ public:
     BoundaryFake(
         const Config &config, 
         const Mesh &mesh, 
-        const FluidBase &fluid, 
-        BoundaryIndex boundIndex)
-        : BoundaryBase(config, mesh, fluid, boundIndex) {}     
+        const FluidBase &fluid)
+        : BoundaryBase(config, mesh, fluid) {}     
 
     virtual ~BoundaryFake()  = default;
 

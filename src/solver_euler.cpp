@@ -770,9 +770,9 @@ void SolverEuler::enforcePeriodicityOnResiduals(FlowSolution& residuals, FloatTy
 
 void SolverEuler::enforceNoSlipWallsOnResiduals(FlowSolution& residuals) const {
     Vector3D zeroWallEffect{0.0, 0.0, 0.0}; 
-    for (auto& bc : _boundaryTypes){
-        if (bc.second == BoundaryType::NO_SLIP_WALL){
-            setMomentumSolutionOnViscousWalls(residuals, bc.first, zeroWallEffect);
+    for (auto& bc : _boundaries){
+        if (bc.type == BoundaryType::NO_SLIP_WALL){
+            setMomentumSolutionOnViscousWalls(residuals, bc, zeroWallEffect);
         }
     }
 }
@@ -787,6 +787,7 @@ void SolverEuler::computeAdvectionFluxResiduals(
     const auto stepMask = getStepMask(direction);
     const Matrix3D<Vector3D>& surfaces = _mesh.getSurfaces(direction);
     const Matrix3D<Vector3D>& midPoints = _mesh.getMidPoints(direction);
+    const Matrix3D<std::shared_ptr<BoundaryBase>>& boundaryConditionMap = getBoundaryConditionsMap(direction);
     
     BoundaryIndex boundaryStart, boundaryEnd;
     if (direction==FluxDirection::I){
@@ -839,12 +840,11 @@ void SolverEuler::computeAdvectionFluxResiduals(
                     }
                 }
                 
-                
                 if (dirFace == 0) { // starting boundary fluxes
                     Uinternal = solution.at(iFace, jFace, kFace);
                     surface = -surfaces(iFace, jFace, kFace);
                     midPoint = midPoints(iFace, jFace, kFace);
-                    flux = _boundaryConditions.at(boundaryStart)->computeBoundaryFlux(
+                    flux = boundaryConditionMap(iFace, jFace, kFace)->computeBoundaryFlux(
                         Uinternal, 
                         surface, 
                         midPoint, 
@@ -852,12 +852,29 @@ void SolverEuler::computeAdvectionFluxResiduals(
                         solution, 
                         itCounter);
                     residuals.add(iFace, jFace, kFace, flux * surface.magnitude());
-                } 
+                }
                 else if (dirFace == stopFace) { // ending boundary fluxes
                     Uinternal = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
                     surface = surfaces(iFace, jFace, kFace);
                     midPoint = midPoints(iFace, jFace, kFace);
-                    flux = _boundaryConditions.at(boundaryEnd)->computeBoundaryFlux(
+                    size_t ii = iFace-1*stepMask[0];
+                    size_t jj = jFace-1*stepMask[1];
+                    size_t kk = kFace-1*stepMask[2];
+                    switch (direction)
+                    {                    
+                    case (FluxDirection::I):
+                        ii = 1;
+                        break;
+                    case (FluxDirection::J):
+                        jj = 1;
+                        break;
+                    case (FluxDirection::K):
+                        kk = 1;
+                        break;
+                    default:
+                        throw std::runtime_error("Invalid FluxDirection.");
+                    }
+                    flux = boundaryConditionMap(ii, jj, kk)->computeBoundaryFlux(
                         Uinternal, 
                         surface, 
                         midPoint, 
@@ -1262,38 +1279,38 @@ void SolverEuler::updateRadialProfiles(FlowSolution &solution){
     std::vector<FloatType> velTangProfile(_nPointsJ);
     FloatType theta;
 
-    for (size_t j = 0; j < _nPointsJ; j++) {
-        conservative = solution.at(_nPointsI-1, j, 0);
-        primitive = getPrimitiveVariablesFromConservative(conservative);    
-        velocityCart(0) = primitive[1];
-        velocityCart(1) = primitive[2];
-        velocityCart(2) = primitive[3];
-        densityProfile[j] = primitive[0];
-        theta = _mesh.getTheta(_nPointsI-1,j,0);
-        velocityCyl = computeCylindricalComponentsFromCartesian(velocityCart, theta);
-        velTangProfile[j] = std::abs(velocityCyl.z());
-    }
+    // for (size_t j = 0; j < _nPointsJ; j++) {
+    //     conservative = solution.at(_nPointsI-1, j, 0);
+    //     primitive = getPrimitiveVariablesFromConservative(conservative);    
+    //     velocityCart(0) = primitive[1];
+    //     velocityCart(1) = primitive[2];
+    //     velocityCart(2) = primitive[3];
+    //     densityProfile[j] = primitive[0];
+    //     theta = _mesh.getTheta(_nPointsI-1,j,0);
+    //     velocityCyl = computeCylindricalComponentsFromCartesian(velocityCart, theta);
+    //     velTangProfile[j] = std::abs(velocityCyl.z());
+    // }
 
-    if (_boundaryTypes[BoundaryIndex::I_END] == BoundaryType::THROTTLE && _isGreitzerModelingActive==false){
-        FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
-        FloatType totPressureInlet = _config.getInletBCValues().at(0);
-        FloatType throttleCoeff = _config.getOutletBCValues()[0];
-        _hubStaticPressure = totPressureInlet + throttleCoeff * mflow*mflow;
-    }
-    else if (_boundaryTypes[BoundaryIndex::I_END] == BoundaryType::THROTTLE && _isGreitzerModelingActive==true){
-        FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
-        _hubStaticPressure = _greitzerModel->computePlenumPressure(mflow);
-    }
-    else {
-        // nothing needed in other cases
-        }
+    // if (_boundaryTypes[BoundaryIndex::I_END] == BoundaryType::THROTTLE && _isGreitzerModelingActive==false){
+    //     FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
+    //     FloatType totPressureInlet = _config.getInletBCValues().at(0);
+    //     FloatType throttleCoeff = _config.getOutletBCValues()[0];
+    //     _hubStaticPressure = totPressureInlet + throttleCoeff * mflow*mflow;
+    // }
+    // else if (_boundaryTypes[BoundaryIndex::I_END] == BoundaryType::THROTTLE && _isGreitzerModelingActive==true){
+    //     FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
+    //     _hubStaticPressure = _greitzerModel->computePlenumPressure(mflow);
+    // }
+    // else {
+    //     // nothing needed in other cases
+    //     }
 
-    integrateRadialEquilibrium(
-        densityProfile, 
-        velTangProfile, 
-        _radialProfileRadialCoords, 
-        _hubStaticPressure, 
-        _radialProfilePressure);
+    // integrateRadialEquilibrium(
+    //     densityProfile, 
+    //     velTangProfile, 
+    //     _radialProfileRadialCoords, 
+    //     _hubStaticPressure, 
+    //     _radialProfilePressure);
 
 }
 
@@ -1604,11 +1621,16 @@ void SolverEuler::writeSolution(size_t iterationCounter, bool alsoGradients){
 
 void SolverEuler::setMomentumSolutionOnViscousWalls(
     FlowSolution &sol, 
-    const BoundaryIndex &boundaryIndex, 
+    const Boundary &boundary,
     const Vector3D& wallVelocity) const{
     
     size_t iStart, iLast, jStart, jLast, kStart, kLast;
-    getBoundarySliceIndices(boundaryIndex, iStart, iLast, jStart, jLast, kStart, kLast);
+    iStart = boundary.i_min;
+    iLast = boundary.i_max;
+    jStart = boundary.j_min;
+    jLast = boundary.j_max;
+    kStart = boundary.k_min;
+    kLast = boundary.k_max;
 
     FloatType density{0.0};
     for (size_t i = iStart; i < iLast; i++) {
@@ -1633,10 +1655,10 @@ void SolverEuler::preprocessSolution(FlowSolution &sol, bool updateRadialProf) {
     // if there are no-slip walls impose zero velocity
     Vector3D wallVel(0.0, 0.0, 0.0);
     if (_config.isViscosityActive()){
-        for (auto& bc : _boundaryTypes){
-            if (bc.second == BoundaryType::NO_SLIP_WALL){
-                wallVel = _config.getNoSlipWallVelocity(bc.first);
-                setMomentumSolutionOnViscousWalls(sol, bc.first, wallVel);
+        for (auto& bc : _boundaries){
+            if (bc.type == BoundaryType::NO_SLIP_WALL){
+                wallVel = {bc.values[0], bc.values[1], bc.values[2]};
+                setMomentumSolutionOnViscousWalls(sol, bc, wallVel);
             }
         }
     }

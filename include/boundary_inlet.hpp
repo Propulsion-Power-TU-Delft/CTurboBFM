@@ -20,9 +20,8 @@ public:
         const Config& config,
         const Mesh& mesh,
         const FluidBase& fluid,
-        BoundaryIndex boundIndex,
         const std::vector<FloatType>& inletValues)
-        : BoundaryBase(config, mesh, fluid, boundIndex),
+        : BoundaryBase(config, mesh, fluid),
         _boundaryValues(inletValues),
         _referenceFrame(config.getInletReferenceFrame()) {}
         

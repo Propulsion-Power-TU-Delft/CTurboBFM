@@ -56,6 +56,10 @@ public:
         size_t &jLast, 
         size_t &kStart, 
         size_t &kLast) const;
+    
+    const Matrix3D<std::shared_ptr<BoundaryBase>>& getBoundaryConditionsMap(FluxDirection direction) const;
+    
+    
 
 
 protected:
@@ -71,10 +75,13 @@ protected:
     FluidModel _fluidModel = FluidModel::IDEAL;
     std::unique_ptr<AdvectionBase> _advection;
     
-    std::map<BoundaryIndex, BoundaryType> _boundaryTypes;
-    std::map<BoundaryIndex, std::vector<FloatType>> _boundaryValues;
-    std::map<BoundaryIndex, Vector3D> _boundaryVelocities;
-    std::map<BoundaryIndex, std::unique_ptr<BoundaryBase>> _boundaryConditions;
+    // std::map<BoundaryIndex, BoundaryType> _boundaryTypes;
+    // std::map<BoundaryIndex, std::vector<FloatType>> _boundaryValues;
+    // std::map<BoundaryIndex, Vector3D> _boundaryVelocities;
+    std::vector<std::shared_ptr<BoundaryBase>> _boundaryConditions;
+    Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapI;
+    Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapJ;
+    Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapK;
     FloatType _hubStaticPressure;
     std::vector<FloatType> _radialProfilePressure; 
     std::vector<FloatType> _radialProfileRadialCoords; 
@@ -83,6 +90,7 @@ protected:
     std::map<BoundaryIndex, FloatType> _massFlows;
     std::map<TurboPerformance, std::vector<FloatType>> _turboPerformance; 
     std::vector<std::map<MonitorOutputField, std::vector<FloatType>>> _monitorPoints; 
+    std::vector<Boundary> _boundaries;
 
     size_t _residualsDropConvergence {16};
 
