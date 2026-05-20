@@ -789,20 +789,6 @@ void SolverEuler::computeAdvectionFluxResiduals(
     const Matrix3D<Vector3D>& midPoints = _mesh.getMidPoints(direction);
     const Matrix3D<std::shared_ptr<BoundaryBase>>& boundaryConditionMap = getBoundaryConditionsMap(direction);
     
-    BoundaryIndex boundaryStart, boundaryEnd;
-    if (direction==FluxDirection::I){
-        boundaryStart = BoundaryIndex::I_START;
-        boundaryEnd = BoundaryIndex::I_END;
-    }
-    else if (direction==FluxDirection::J){
-        boundaryStart = BoundaryIndex::J_START;
-        boundaryEnd = BoundaryIndex::J_END;
-    }
-    else {
-        boundaryStart = BoundaryIndex::K_START;
-        boundaryEnd = BoundaryIndex::K_END;
-    }
-    
     StateVector Uinternal{}, Uleft{}, Uright{}, Uleftleft {}, Urightright {}, flux {};
     Vector3D surface {}, midPoint {};
 
