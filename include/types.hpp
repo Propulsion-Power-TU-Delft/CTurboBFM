@@ -11,7 +11,6 @@
 
 using FloatType = double;
 
-
 /** @brief Class for 3D vectors of FloatType type elements. The 3 components are named as x,y,z. */
 class Vector3D {
 
@@ -220,14 +219,6 @@ struct Index {
     size_t j;
     size_t k;
 };
-
-// struct Boundary {
-//     std::string name;
-//     BoundaryType type;
-//     std::vector<FloatType> values;
-//     size_t i_min, i_max, j_min, j_max, k_min, k_max;
-//     std::shared_ptr<BoundaryBase> fluxMethod;
-// };
 
 enum class TimeIntegration {
     RUNGE_KUTTA_4,

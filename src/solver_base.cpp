@@ -105,6 +105,36 @@ void SolverBase::readBoundaryConditions(){
         _boundaries.push_back(patch);
     }
 
+    // for specific bcs allocate the required data structures
+    for (auto& bound : _boundaries) {
+        if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM){
+            RadialEquilibriumProfile profile;
+            profile.boundary = bound;
+
+            if(bound.i_min != bound.i_max){
+                throw std::runtime_error("Radial equilibrium only supported on j-k patches");
+            };
+
+            if(bound.i_min == 0){
+                throw std::runtime_error("Radial equilibrium only supported to the last i-position");
+            };
+
+            size_t nPoints = bound.j_max - bound.j_min;
+            if (nPoints <= 0) {
+                throw std::runtime_error("Invalid boundary indices for radial equilibrium patch: " + bound.name);
+            }
+            
+            for (size_t j=bound.j_min; j<bound.j_max; j++){
+                FloatType radius = _mesh.getRadius(bound.i_min-1, j, 0);
+                profile.radius.push_back(radius);
+            }
+            profile.pressure.resize(nPoints);
+            _radialEquilibriumProfiles.push_back(profile);
+        }
+    }
+
+
+
     // build the structure for the objects referencing boundary conditions
     size_t niFaces, njFaces, nkFaces;
 
@@ -164,7 +194,7 @@ void SolverBase::readBoundaryConditions(){
                 _config, 
                 _mesh, 
                 *_fluid, 
-                _radialProfilePressure);
+                _radialEquilibriumProfiles.back().pressure);
         }
         else if (bound.type == BoundaryType::OUTLET_SUPERSONIC){
             bound.fluxMethod = std::make_unique<BoundaryOutletSupersonic>(
@@ -178,7 +208,7 @@ void SolverBase::readBoundaryConditions(){
                 _config, 
                 _mesh, 
                 *_fluid, 
-                _radialProfilePressure);
+                _radialEquilibriumProfiles.back().pressure);
         }
         else if (bound.type == BoundaryType::WEDGE){
             bound.fluxMethod = std::make_unique<BoundaryFake>(

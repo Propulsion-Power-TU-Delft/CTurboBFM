@@ -6,6 +6,7 @@
 #include "fluid_base.hpp"
 
 
+
 class BoundaryBase {
     
 public:
@@ -55,12 +56,16 @@ protected:
         
 };
 
-
-
 struct Boundary {
     std::string name;
     BoundaryType type;
     std::vector<FloatType> values;
     size_t i_min, i_max, j_min, j_max, k_min, k_max;
     std::shared_ptr<BoundaryBase> fluxMethod;
+};
+
+struct RadialEquilibriumProfile {
+    std::vector<FloatType> pressure;
+    std::vector<FloatType> radius;
+    Boundary boundary;
 };

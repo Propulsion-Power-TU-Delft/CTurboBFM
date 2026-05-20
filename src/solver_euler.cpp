@@ -86,16 +86,6 @@ void SolverEuler::initializeSolutionArrays(){
     computeGradientOfField(_conservativeSolution.getVelocityZ(), _solutionGrad[SolutionName::VELOCITY_Z]);
     computeGradientOfField(_conservativeSolution.getTotalEnergy(), _solutionGrad[SolutionName::TOTAL_ENERGY]);
 
-    _radialProfilePressure.resize(_nPointsJ);
-    _radialProfileRadialCoords.resize(_nPointsJ);
-    size_t ni = _mesh.getNumberPointsI();
-    size_t nj = _mesh.getNumberPointsJ();
-    for (size_t j = 0; j < nj; j++) {
-        _radialProfileRadialCoords[j] = std::sqrt(_mesh.getVertex(ni-1,j,0).y() * _mesh.getVertex(ni-1,j,0).y() + 
-                                            _mesh.getVertex(ni-1,j,0).z() * _mesh.getVertex(ni-1,j,0).z());
-    }
-
-
     if (_isGreitzerModelingActive){
         updateMassFlows(_conservativeSolution);
         updateTurboPerformance(_conservativeSolution);
@@ -104,6 +94,19 @@ void SolverEuler::initializeSolutionArrays(){
         StateVector primitiveHubOutlet = getPrimitiveVariablesFromConservative(conservativeHubOutlet);
         FloatType outletPressureHub = _fluid->computePressure_primitive(primitiveHubOutlet);
         _greitzerModel->initializeState(outletPressureHub, massflow, massflow);
+    }
+
+    for (auto& radialProfile: _radialEquilibriumProfiles) {
+        Boundary bound = radialProfile.boundary;
+        size_t k = 0;
+        size_t i = bound.i_min-1;
+        for (size_t j=bound.j_min; j<bound.j_max; j++){
+            StateVector conservative = _conservativeSolution.at(i, j, 0);
+            StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
+            FloatType pressure = _fluid->computePressure_primitive(primitive);
+            radialProfile.pressure[k] = pressure;
+            k++;
+        }
     }
 
 }
@@ -1261,21 +1264,39 @@ void SolverEuler::writeMonitorPointsToCsvFile() const {
 void SolverEuler::updateRadialProfiles(FlowSolution &solution){
     StateVector conservative, primitive;
     Vector3D velocityCart, velocityCyl;
-    std::vector<FloatType> densityProfile(_nPointsJ);
-    std::vector<FloatType> velTangProfile(_nPointsJ);
-    FloatType theta;
+    
+    for (auto& radialProfile : _radialEquilibriumProfiles){
+        std::vector<FloatType> densityProfile(radialProfile.pressure.size());
+        std::vector<FloatType> velTangProfile(radialProfile.pressure.size());
+        FloatType theta;
+        size_t i = radialProfile.boundary.i_min-1;
+        size_t k = 0;
+        for (size_t j = radialProfile.boundary.j_min; j < radialProfile.boundary.j_max; j++) {
+            conservative = solution.at(i, j, 0);
+            primitive = getPrimitiveVariablesFromConservative(conservative);    
+            velocityCart(0) = primitive[1];
+            velocityCart(1) = primitive[2];
+            velocityCart(2) = primitive[3];
+            theta = _mesh.getTheta(i, j, 0);
+            velocityCyl = computeCylindricalComponentsFromCartesian(velocityCart, theta);
+            
+            densityProfile[k] = primitive[0];
+            velTangProfile[k] = std::abs(velocityCyl.z());
+            k++;
+        }
+        _hubStaticPressure = radialProfile.pressure[0]; // correct?
 
-    // for (size_t j = 0; j < _nPointsJ; j++) {
-    //     conservative = solution.at(_nPointsI-1, j, 0);
-    //     primitive = getPrimitiveVariablesFromConservative(conservative);    
-    //     velocityCart(0) = primitive[1];
-    //     velocityCart(1) = primitive[2];
-    //     velocityCart(2) = primitive[3];
-    //     densityProfile[j] = primitive[0];
-    //     theta = _mesh.getTheta(_nPointsI-1,j,0);
-    //     velocityCyl = computeCylindricalComponentsFromCartesian(velocityCart, theta);
-    //     velTangProfile[j] = std::abs(velocityCyl.z());
-    // }
+        integrateRadialEquilibrium(
+            densityProfile, 
+            velTangProfile, 
+            radialProfile.radius, 
+            _hubStaticPressure, 
+            radialProfile.pressure);
+        
+    }
+    
+
+    
 
     // if (_boundaryTypes[BoundaryIndex::I_END] == BoundaryType::THROTTLE && _isGreitzerModelingActive==false){
     //     FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();

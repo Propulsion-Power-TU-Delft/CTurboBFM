@@ -75,16 +75,15 @@ protected:
     FluidModel _fluidModel = FluidModel::IDEAL;
     std::unique_ptr<AdvectionBase> _advection;
     
-    // std::map<BoundaryIndex, BoundaryType> _boundaryTypes;
-    // std::map<BoundaryIndex, std::vector<FloatType>> _boundaryValues;
-    // std::map<BoundaryIndex, Vector3D> _boundaryVelocities;
     std::vector<std::shared_ptr<BoundaryBase>> _boundaryConditions;
     Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapI;
     Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapJ;
     Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapK;
+    
     FloatType _hubStaticPressure;
-    std::vector<FloatType> _radialProfilePressure; 
-    std::vector<FloatType> _radialProfileRadialCoords; 
+
+    std::vector<RadialEquilibriumProfile> _radialEquilibriumProfiles;
+
     std::string _inlet2DfilePath{""}; 
 
     std::map<BoundaryIndex, FloatType> _massFlows;
