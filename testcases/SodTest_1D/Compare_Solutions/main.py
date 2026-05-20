@@ -6,13 +6,13 @@ from Utils.styles import *
 
 
 files = [
-    'Volume_CSV/results_250_roe.csv',
-    'Volume_CSV/results_250_jst.csv',
+    '../Run_Roe1/Volume_CSV/results_250_roe1.csv',
+    '../Run_Roe2/Volume_CSV/results_250_roe2.csv',
 ]
 
 labels = [
-    'N:250 Roe',
-    'N:250 JST',
+    'Roe 1',
+    'Roe 2',
 ]
 
 fields = [
@@ -26,9 +26,9 @@ for field in fields:
     for file in files:
         df = pd.read_csv(file, skiprows=3)
         plt.plot(df['x'], df[field], label=labels[files.index(file)])
-    plt.xlabel(r'$x$ [-]')
-    plt.ylabel(r'%s [-]' % field)
+    plt.xlabel(r'$x$')
+    plt.ylabel(r'%s' % field)
     plt.grid(alpha=0.2)
     plt.legend()
-    plt.savefig('pictures/%s.pdf' % field, bbox_inches='tight')
+    plt.savefig('%s.pdf' % field, bbox_inches='tight')
 plt.show()
