@@ -1618,17 +1618,32 @@ void SolverEuler::setMomentumSolutionOnViscousWalls(
     kStart = boundary.k_min;
     kLast = boundary.k_max;
 
-    FloatType density{0.0};
-    for (size_t i = iStart; i < iLast; i++) {
-        for (size_t j = jStart; j < jLast; j++) {
-            for (size_t k = kStart; k < kLast; k++) {
-                density = sol.at(i, j, k)[0];
-                for (int eq = 1; eq <= 3; ++eq){
-                    sol.set(i, j, k, eq, density * wallVelocity(eq-1));
-                }
-            }
-        }
+    auto applyWallCondition = [&](size_t i, size_t j, size_t k) {
+    FloatType density = sol.at(i, j, k)[0];
+    for (int eq = 1; eq <= 3; ++eq)
+        sol.set(i, j, k, eq, density * wallVelocity(eq - 1));
+    };
+
+    if (iStart == iLast) {
+        size_t i = (iStart == 0) ? 0 : iLast - 1;
+        for (size_t j = jStart; j < jLast; ++j)
+            for (size_t k = kStart; k < kLast; ++k)
+                applyWallCondition(i, j, k);
     }
+    else if (jStart == jLast) {
+        size_t j = (jStart == 0) ? 0 : jLast - 1;
+        for (size_t i = iStart; i < iLast; ++i)
+            for (size_t k = kStart; k < kLast; ++k)
+                applyWallCondition(i, j, k);
+    }
+    else if (kStart == kLast) {
+        size_t k = (kStart == 0) ? 0 : kLast - 1;
+        for (size_t i = iStart; i < iLast; ++i)
+            for (size_t j = jStart; j < jLast; ++j)
+                applyWallCondition(i, j, k);
+    }
+
+
 }
 
 
