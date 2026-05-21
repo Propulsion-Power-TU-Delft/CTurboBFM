@@ -650,7 +650,7 @@ void SolverEuler::updateTurboPerformance(const FlowSolution&solution){
         massFlow *= 2.0 * M_PI / _mesh.getWedgeAngle();
     }
     else {
-        FloatType periodicAngle = _config.getPeriodicityAngleDeg();
+        FloatType periodicAngle = _periodicityAngleDeg;
         if (periodicAngle != 0.0) {
             massFlow *= 360.0 / periodicAngle;
         }
@@ -1566,7 +1566,7 @@ StateVector SolverEuler::computeGongSource(
         return StateVector({0,0,0,0,0});
     }
 
-    if (_config.getPeriodicityAngleDeg() != 0){
+    if (_periodicityAngleDeg != 0){
         std::cerr << "Error: Periodicity angle different from full annulus is not supported for Gong BF formulation\n";
     }
 
