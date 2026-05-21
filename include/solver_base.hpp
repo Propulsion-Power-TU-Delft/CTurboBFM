@@ -63,7 +63,7 @@ public:
 
     void computeWallDistance() ;
 
-    FloatType computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, BoundaryIndex boundaryIdx) const;
+    FloatType computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, Boundary boundary) const;
 
     inline const Matrix3D<FloatType> getWallDistance() const {
         return _wallDistance;

@@ -45,7 +45,6 @@ SolverBase::SolverBase(Config& config, Mesh& mesh)
     readBoundaryConditions();
     computeWallDistance();
     
-    
 }
 
 void SolverBase::readBoundaryConditions(){
@@ -394,9 +393,10 @@ void SolverBase::computeWallDistance() {
             for (size_t k = 0; k < _nPointsK; ++k) {
                 FloatType minDistance = 1.0E9;
                 FloatType distanceTmp = 1.0E9;
-                for (auto& bound : _boundaryTypes) {
-                    if (bound.second == BoundaryType::INVISCID_WALL || bound.second == BoundaryType::NO_SLIP_WALL){ 
-                        distanceTmp = computeMinimumDistanceToBoundary(i, j, k, bound.first);
+
+                for (auto& bound : _boundaries) {
+                    if (bound.type == BoundaryType::NO_SLIP_WALL){ 
+                        distanceTmp = computeMinimumDistanceToBoundary(i, j, k, bound);
                     }
                     if (distanceTmp < minDistance){
                         minDistance = distanceTmp;
@@ -409,15 +409,42 @@ void SolverBase::computeWallDistance() {
 }
 
 
-FloatType SolverBase::computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, BoundaryIndex boundaryIdx) const {
+FloatType SolverBase::computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, Boundary boundary) const {
     size_t iStart, iLast, jStart, jLast, kStart, kLast;
-    getBoundarySliceIndices(boundaryIdx, iStart, iLast, jStart, jLast, kStart, kLast);
+    iStart = boundary.i_min;
+    iLast = boundary.i_max;
+    jStart = boundary.j_min;
+    jLast = boundary.j_max;
+    kStart = boundary.k_min;
+    kLast = boundary.k_max;
+
+    // fix the indexing
+    if (iStart == iLast){
+        iLast += 2;
+    }
+    else if (iLast == iStart+1){
+        iLast += 1;
+    }
+
+    if (jStart == jLast){
+        jLast += 2;
+    }
+    else if (jLast == jStart+1){
+        jLast += 1;
+    }
+
+    if (kStart == kLast){
+        kLast += 2;
+    }
+    else if (kLast == kStart+1){
+        kLast += 1;
+    }
     
     FloatType dx, dy, dz;
     FloatType minDistance = 1.0E9;
-    for (size_t ib = iStart; ib < iLast; ++ib) {
-        for (size_t jb = jStart; jb < jLast; ++jb) {
-            for (size_t kb = kStart; kb < kLast; ++kb) {
+    for (size_t ib = iStart; ib < iLast-1; ++ib) {
+        for (size_t jb = jStart; jb < jLast-1; ++jb) {
+            for (size_t kb = kStart; kb < kLast-1; ++kb) {
                 dx = _mesh.getVertex(i,j,k).x() - _mesh.getVertex(ib,jb,kb).x();
                 dy = _mesh.getVertex(i,j,k).y() - _mesh.getVertex(ib,jb,kb).y();
                 dz = _mesh.getVertex(i,j,k).z() - _mesh.getVertex(ib,jb,kb).z();

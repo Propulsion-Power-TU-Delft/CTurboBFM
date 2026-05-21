@@ -12,6 +12,6 @@ public:
 
 private:
     // SA-specific fields
-    double _nu_t;   // turbulent viscosity
-    double _chi;    // viscosity ratio
+    // double _nu_t;   // turbulent viscosity
+    // double _chi;    // viscosity ratio
 };
