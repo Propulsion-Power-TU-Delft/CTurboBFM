@@ -105,7 +105,7 @@ void SolverBase::readBoundaryConditions(){
         _boundaries.push_back(patch);
     }
 
-    // for specific bcs allocate the required data structures
+    // for specific bcs allocate the required information
     for (auto& bound : _boundaries) {
         if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM || bound.type == BoundaryType::THROTTLE){
             RadialEquilibriumProfile profile;
@@ -130,6 +130,31 @@ void SolverBase::readBoundaryConditions(){
             }
             profile.pressure.resize(nPoints);
             _radialEquilibriumProfiles.push_back(profile);
+        }
+        else if (bound.type == BoundaryType::PERIODIC){
+            FloatType boundaryId = bound.values[0];
+
+            if (boundaryId == 0){
+                _periodicityTranslation = bound.values[1];
+                _periodicityAngleDeg = bound.values[2];
+                if (_periodicityAngleDeg == 360.0){
+                    _periodicityAngleDeg = 0.0;
+                }
+                _periodicityAngleRad = _periodicityAngleDeg * M_PI / 180.0;
+                _mesh.checkPeriodicity(_periodicityTranslation, _periodicityAngleRad);
+            }
+            
+            // some restrictions for now, to be relaxed in the future
+            if (bound.k_min != bound.k_max){
+                throw std::runtime_error("Periodic boundary only supported on i-j patches");
+            };
+            if (bound.i_min != 0 || bound.j_min != 0 || bound.i_max != _nPointsI || bound.j_max != _nPointsJ){
+                throw std::runtime_error("Periodic boundary only supported on full i-j patches");
+            };
+            if (bound.k_min == 0 && boundaryId != 0){
+                throw std::runtime_error("Periodic boundary with i_min=0 must have boundary id 0");
+            }
+
         }
     }
 

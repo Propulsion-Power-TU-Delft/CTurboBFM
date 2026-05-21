@@ -93,4 +93,7 @@ protected:
 
     size_t _residualsDropConvergence {16};
 
+    FloatType _periodicityTranslation;
+    FloatType _periodicityAngleDeg;
+    FloatType _periodicityAngleRad;
 };

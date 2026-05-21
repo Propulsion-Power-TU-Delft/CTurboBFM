@@ -753,8 +753,7 @@ void SolverEuler::computeResiduals(
 
     // periodicity enforcement on residuals
     if (_mesh.isPeriodicityActive()){
-        FloatType angle = _mesh.getPeriodicityAngleRad();
-        enforcePeriodicityOnResiduals(residuals, angle);
+        enforcePeriodicityOnResiduals(residuals, _periodicityAngleRad);
     }
 
     // no-slip walls enforcement on residuals
@@ -767,21 +766,21 @@ void SolverEuler::computeResiduals(
 
 void SolverEuler::enforcePeriodicityOnResiduals(FlowSolution& residuals, FloatType& angleRad) const {
     for (size_t i=0; i<_nPointsI; i++){
-            for (size_t j=0; j<_nPointsJ; j++){
-                StateVector R1 = residuals.at(i, j, 0);
-                StateVector R2 = residuals.at(i, j, _nPointsK - 1);
+        for (size_t j=0; j<_nPointsJ; j++){
+            StateVector R1 = residuals.at(i, j, 0);
+            StateVector R2 = residuals.at(i, j, _nPointsK - 1);
 
-                // Rotate the second in place of a common frame (e.g. frame of the "first" side)
-                StateVector R2_frame1 = rotateStateVectorAlongXAxis(R2, -angleRad);
+            // Rotate the second in place of a common frame (e.g. frame of the "first" side)
+            StateVector R2_frame1 = rotateStateVectorAlongXAxis(R2, -angleRad);
 
-                // Combine residuals to get an average, in the frame of the "first" side
-                StateVector R1_avg = (R1 + R2_frame1) * 0.5;
+            // Combine residuals to get an average, in the frame of the "first" side
+            StateVector R1_avg = (R1 + R2_frame1) * 0.5;
 
-                // Symmetrize: give each half (ensures conservation)
-                residuals.set(i, j, 0, R1_avg);
-                residuals.set(i, j, _nPointsK - 1, rotateStateVectorAlongXAxis(R1_avg, +angleRad));
-            }
+            // Symmetrize: give each half (ensures conservation)
+            residuals.set(i, j, 0, R1_avg);
+            residuals.set(i, j, _nPointsK - 1, rotateStateVectorAlongXAxis(R1_avg, +angleRad));
         }
+    }
 }
 
 void SolverEuler::enforceNoSlipWallsOnResiduals(FlowSolution& residuals) const {
@@ -1133,7 +1132,7 @@ void SolverEuler::updateSolution(
 void SolverEuler::enforcePeriodicityOnSolution(FlowSolution &solNew){
     if (!_mesh.isPeriodicityActive()) return;
 
-    const auto angle = _mesh.getPeriodicityAngleRad();
+    const auto angle = _periodicityAngleRad;
     const auto inverseAngle = -angle;
 
     StateVector U1, U2, Uavg;
