@@ -239,75 +239,6 @@ Topology Config::getTopology() const {
     return topology;
 }
 
-BoundaryType Config::getBoundaryType(BoundaryIndex bcIndex) const{
-    BoundaryType boundaryType;
-    std::string boundaryString;
-
-    if (bcIndex == BoundaryIndex::I_START){
-        boundaryString = parseVector<std::string>("BOUNDARY_TYPE_I")[0];
-    } 
-    else if (bcIndex == BoundaryIndex::I_END){
-        boundaryString = parseVector<std::string>("BOUNDARY_TYPE_I")[1];
-    } 
-    else if (bcIndex == BoundaryIndex::J_START){
-        boundaryString = parseVector<std::string>("BOUNDARY_TYPE_J")[0];
-    } 
-    else if (bcIndex == BoundaryIndex::J_END){
-        boundaryString = parseVector<std::string>("BOUNDARY_TYPE_J")[1];
-    }
-    else if (bcIndex == BoundaryIndex::K_START){
-        boundaryString = parseVector<std::string>("BOUNDARY_TYPE_K")[0];
-    }
-    else if (bcIndex == BoundaryIndex::K_END){
-        boundaryString = parseVector<std::string>("BOUNDARY_TYPE_K")[1];
-    } 
-    else {
-        throw std::runtime_error("Invalid direction Bounday Index");
-    }
-    
-    if (boundaryString == "inlet") {
-        boundaryType = BoundaryType::INLET;
-    } 
-    else if (boundaryString == "inlet_supersonic") {
-        boundaryType = BoundaryType::INLET_SUPERSONIC;
-    }
-    else if (boundaryString == "inlet_2d") {
-        boundaryType = BoundaryType::INLET_2D;
-    }
-    else if (boundaryString == "outlet") {
-        boundaryType = BoundaryType::OUTLET;
-    } 
-    else if (boundaryString == "outlet_supersonic") {
-        boundaryType = BoundaryType::OUTLET_SUPERSONIC;
-    } 
-    else if (boundaryString == "radial_equilibrium") {
-        boundaryType = BoundaryType::RADIAL_EQUILIBRIUM;
-    }
-    else if (boundaryString == "throttle") {
-        boundaryType = BoundaryType::THROTTLE;
-    } 
-    else if (boundaryString == "wall") {
-        boundaryType = BoundaryType::INVISCID_WALL;
-    } 
-    else if (boundaryString == "no_slip_wall") {
-        boundaryType = BoundaryType::NO_SLIP_WALL;
-    } 
-    else if (boundaryString == "wedge") {
-        boundaryType = BoundaryType::WEDGE;
-    }
-    else if (boundaryString == "periodic") {
-        boundaryType = BoundaryType::PERIODIC;
-    } 
-    else if (boundaryString == "transparent") {
-        boundaryType = BoundaryType::TRANSPARENT;
-    } 
-    else {
-        throw std::runtime_error("Invalid value for key \"BOUNDARY_TYPES\" in configuration.");
-    }
-
-    return boundaryType;
-}
-
 TimeIntegration Config::getTimeIntegration() const {
     int value = std::stoi(get("TIME_INTEGRATION_TYPE"));
     TimeIntegration integration = TimeIntegration::RUNGE_KUTTA_4;
@@ -539,15 +470,6 @@ Vector3D Config::getNoSlipWallVelocity(BoundaryIndex boundary) const{
 
 }
 
-std::vector<FloatType> Config::getPeriodicityInfo() const {
-    std::vector<FloatType> periodicityInfo = parseVector<FloatType>("PERIODICITY_INFO");
-    
-    assert (periodicityInfo.size() == 2 && 
-        "PERIODICITY_INFO must indicate 2 values (translation along z and rotation along x)");
-    
-    return periodicityInfo;
-}
-
 bool Config::enableGreitzerModeling() const {
     bool isEnabled = parseBool("ENABLE_GREITZER_MODELING", false);
 
@@ -582,4 +504,33 @@ FloatType Config::getRotationalSpeedScalingFactor(FloatType currentTime) const {
                 currentTime - initialTime) / (finalTime - initialTime);
         }
     }
+}
+
+
+BoundaryType Config::getBoundaryType(std::string name) const{
+    std::vector<std::string> boundaryInfo = getBoundaryInfo(name);
+    if (boundaryInfo.size() < 1) {
+        throw std::runtime_error("Boundary info for " + name + " is missing in configuration.");
+    }
+    BoundaryType boundaryType = boundaryTypeFromString(boundaryInfo[0]);
+    return boundaryType;
+}
+
+std::vector<FloatType> Config::getBoundaryValues(std::string name) const{
+    std::vector<std::string> boundaryInfo = getBoundaryInfo(name);
+    // if (boundaryInfo.size() < 2) {
+    //     throw std::runtime_error("Boundary values for " + name + " are missing in configuration.");
+    // }
+
+    std::vector<FloatType> values;
+    for (size_t i = 1; i < boundaryInfo.size(); ++i) {
+        try {
+            values.push_back(std::stod(boundaryInfo[i]));
+        } catch (const std::invalid_argument& e) {
+            throw std::runtime_error("Invalid float format for boundary value \"" + boundaryInfo[i] + "\" in configuration.");
+        } catch (const std::out_of_range& e) {
+            throw std::runtime_error("Float value out of range for boundary value \"" + boundaryInfo[i] + "\" in configuration.");
+        }
+    }
+    return values;
 }

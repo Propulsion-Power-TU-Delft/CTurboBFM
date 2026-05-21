@@ -50,8 +50,8 @@ void integrateRadialEquilibrium(
     const std::vector<FloatType>& density, 
     const std::vector<FloatType>& velocityTang, 
     const std::vector<FloatType>& radius, 
-    const FloatType& hubPressure, 
-        std::vector<FloatType>& pressure);
+    std::vector<FloatType>& pressure,
+    FloatType& newHubPressure);
 
 void computeGradientGreenGauss(
     const Matrix3D<Vector3D>& surfacesI, 

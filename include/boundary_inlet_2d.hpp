@@ -22,7 +22,6 @@ public:
         const Config &config, 
         const Mesh &mesh, 
         const FluidBase &fluid, 
-        BoundaryIndex boundIndex, 
         std::string inletFilePath);
         
     virtual ~BoundaryInlet2D() {}

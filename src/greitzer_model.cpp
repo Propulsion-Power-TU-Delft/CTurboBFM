@@ -2,11 +2,11 @@
 
 GreitzerModel::GreitzerModel(
     const Config &config, 
-    const FluidBase &fluid)
-    : _fluid(fluid), _config(config)
+    const FluidBase &fluid,
+    FloatType throttleCoefficient)
+    : _fluid(fluid), _config(config), _throttleCoefficient(throttleCoefficient)
 {
     _plenumVolume = _config.getGreitzerPlenumVolume();
-    _throttleCoefficient = _config.getGreitzerThrottleCoefficient();
     _deltaTime = _config.getFixedTimeStep();
     _fluidGamma = _fluid.getGamma();
     _fluidRConstant = _fluid.getRconstant();
@@ -29,7 +29,7 @@ FloatType GreitzerModel::computePlenumPressure(FloatType massFlow) {
     _plenumInletMassflow.push_back(massFlow);
     _time.push_back(_time.back() + _deltaTime);
     
-    FloatType aPlenum = std::sqrt(_fluidGamma * _fluidRConstant * 350); // for now keep it simple, it will change a bit the dynamics
+    FloatType aPlenum = std::sqrt(_fluidGamma * _fluidRConstant * 350); 
 
     FloatType newP = _plenumPressure.back() + _deltaTime*aPlenum*aPlenum / (_fluidGamma*_plenumVolume) * (
         _plenumInletMassflow.back() - _plenumOutletMassflow.back());

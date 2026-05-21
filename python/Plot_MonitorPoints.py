@@ -59,7 +59,7 @@ def main():
             plt.plot(dfs[0]["Time[s]"]/time_per_revolution, dfs[0][field])
 
         if time_per_revolution!=1:
-            plt.xlabel("Revs [-]")
+            plt.xlabel("Revs.")
         else:
             plt.xlabel("Time [s]") # to give availability to plit in seconds if needed
         plt.ylabel(field)

@@ -6,11 +6,12 @@
 #include "fluid_base.hpp"
 
 
+
 class BoundaryBase {
     
 public:
-    BoundaryBase(const Config &config, const Mesh &mesh, const FluidBase &fluid, BoundaryIndex boundIndex) 
-        : _config(config), _mesh(mesh), _fluid(fluid), _boundaryIndex(boundIndex) {};
+    BoundaryBase(const Config &config, const Mesh &mesh, const FluidBase &fluid) 
+        : _config(config), _mesh(mesh), _fluid(fluid) {};
         
     virtual ~BoundaryBase() = default;
 
@@ -52,6 +53,19 @@ protected:
     const Config& _config;
     const Mesh& _mesh;
     const FluidBase& _fluid;
-    const BoundaryIndex _boundaryIndex;
         
+};
+
+struct Boundary {
+    std::string name;
+    BoundaryType type;
+    std::vector<FloatType> values;
+    size_t i_min, i_max, j_min, j_max, k_min, k_max;
+    std::shared_ptr<BoundaryBase> fluxMethod;
+};
+
+struct RadialEquilibriumProfile {
+    std::vector<FloatType> pressure;
+    std::vector<FloatType> radius;
+    Boundary boundary;
 };

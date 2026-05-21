@@ -1,4 +1,6 @@
 #include "solver_base.hpp"
+#include <fstream>
+#include <sstream>
 #include <iostream>
 
 SolverBase::SolverBase(Config& config, Mesh& mesh)
@@ -43,142 +45,271 @@ SolverBase::SolverBase(Config& config, Mesh& mesh)
     readBoundaryConditions();
     computeWallDistance();
     
-    
 }
 
 void SolverBase::readBoundaryConditions(){
+    std::string filename = _config.getBoundaryConditionsFilePath();
+    std::ifstream file(filename);
 
-    std::array<BoundaryIndex, 6> bounds = {
-        BoundaryIndex::I_START,
-        BoundaryIndex::I_END,
-        BoundaryIndex::J_START,
-        BoundaryIndex::J_END,
-        BoundaryIndex::K_START,
-        BoundaryIndex::K_END};
-    
-    // read the boundaries type
-    for (auto& bound : bounds) {
-        _boundaryTypes[bound] = _config.getBoundaryType(bound);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file: " + filename);
     }
 
-    // read the boundary conditions values
-    for (auto& bound : bounds) {
-        if (_boundaryTypes[bound] == BoundaryType::INLET || _boundaryTypes[bound] == BoundaryType::INLET_SUPERSONIC) {
-            _boundaryValues[bound] = _config.getInletBCValues();
-        }
-        else if (_boundaryTypes[bound] == BoundaryType::INLET_2D){
-            _boundaryValues[bound] = std::vector<FloatType> {};
-            _inlet2DfilePath = _config.getInlet2DfilePath();
-        }
-        else if (_boundaryTypes[bound] == BoundaryType::OUTLET 
-                 || _boundaryTypes[bound] == BoundaryType::OUTLET_SUPERSONIC 
-                 || _boundaryTypes[bound] == BoundaryType::THROTTLE){
+    std::string line;
+    bool inDataSection = false;
 
-            _boundaryValues[bound] = _config.getOutletBCValues();
+    while (std::getline(file, line)) {
+
+        // Skip empty lines
+        if (line.empty())
+            continue;
+
+        // Skip metadata lines (NDIMENSIONS=2, NI=177, etc.)
+        if (line.find('=') != std::string::npos)
+            continue;
+
+        // Detect CSV header — marks start of data section
+        if (line.find("PATCH_NAME") != std::string::npos) {
+            inDataSection = true;
+            continue;
         }
-        else if (_boundaryTypes[bound] == BoundaryType::RADIAL_EQUILIBRIUM){
-            _boundaryValues[bound] = _config.getOutletBCValues();
-            _hubStaticPressure = _boundaryValues[bound][0];
+
+        if (!inDataSection)
+            continue;
+
+        // Parse patch data row
+        std::stringstream ss(line);
+        std::string token;
+        Boundary patch;
+
+        // PATCH_NAME
+        std::getline(ss, token, ',');
+        token.erase(std::remove(token.begin(), token.end(), ' '), token.end());
+        patch.name = token;
+
+        // I_MIN, I_MAX, J_MIN, J_MAX, K_MIN, K_MAX
+        auto readInt = [&]() {
+            std::getline(ss, token, ',');
+            token.erase(std::remove(token.begin(), token.end(), ' '), token.end());
+            return std::stoi(token);
+        };
+
+        patch.i_min = readInt();
+        patch.i_max = readInt();
+        patch.j_min = readInt();
+        patch.j_max = readInt();
+        patch.k_min = readInt();
+        patch.k_max = readInt();
+
+        patch.type   = _config.getBoundaryType(patch.name);
+        patch.values = _config.getBoundaryValues(patch.name);
+
+        _boundaries.push_back(patch);
+    }
+
+    // for specific bcs allocate the required information
+    for (auto& bound : _boundaries) {
+        if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM || bound.type == BoundaryType::THROTTLE){
+            RadialEquilibriumProfile profile;
+            profile.boundary = bound;
+
+            if(bound.i_min != bound.i_max){
+                throw std::runtime_error("Radial equilibrium only supported on j-k patches");
+            };
+
+            if(bound.i_min == 0){
+                throw std::runtime_error("Radial equilibrium only supported to the last i-position");
+            };
+
+            size_t nPoints = bound.j_max - bound.j_min;
+            if (nPoints <= 0) {
+                throw std::runtime_error("Invalid boundary indices for radial equilibrium patch: " + bound.name);
+            }
+            
+            for (size_t j=bound.j_min; j<bound.j_max; j++){
+                FloatType radius = _mesh.getRadius(bound.i_min-1, j, 0);
+                profile.radius.push_back(radius);
+            }
+            profile.pressure.resize(nPoints);
+            _radialEquilibriumProfiles.push_back(profile);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::PERIODIC){
-            _mesh.checkPeriodicity();
-            _boundaryValues[bound] = _config.getPeriodicityInfo();
-        }
-        else if (_boundaryTypes[bound] == BoundaryType::NO_SLIP_WALL){
-            _boundaryVelocities[bound] = _config.getNoSlipWallVelocity(bound);
-        }
-        else {
-            // others type of boundaries don't need any other information -> zero length vector
-            _boundaryValues[bound] = std::vector<FloatType> {};
+        else if (bound.type == BoundaryType::PERIODIC){
+            FloatType boundaryId = bound.values[0];
+
+            if (boundaryId == 0){
+                _periodicityTranslation = bound.values[1];
+                _periodicityAngleDeg = bound.values[2];
+                if (_periodicityAngleDeg == 360.0){
+                    _periodicityAngleDeg = 0.0;
+                }
+                _periodicityAngleRad = _periodicityAngleDeg * M_PI / 180.0;
+                _mesh.checkPeriodicity(_periodicityTranslation, _periodicityAngleRad);
+            }
+            
+            // some restrictions for now, to be relaxed in the future
+            if (bound.k_min != bound.k_max){
+                throw std::runtime_error("Periodic boundary only supported on i-j patches");
+            };
+            if (bound.i_min != 0 || bound.j_min != 0 || bound.i_max != _nPointsI || bound.j_max != _nPointsJ){
+                throw std::runtime_error("Periodic boundary only supported on full i-j patches");
+            };
+            if (bound.k_min == 0 && boundaryId != 0){
+                throw std::runtime_error("Periodic boundary with i_min=0 must have boundary id 0");
+            }
+
         }
     }
+
+
+
+    // build the structure for the objects referencing boundary conditions
+    size_t niFaces, njFaces, nkFaces;
+
+    njFaces = _mesh.getSurfacesI().sizeJ();
+    nkFaces = _mesh.getSurfacesI().sizeK();
+    _boundaryConditionsMapI.resize(2, njFaces, nkFaces);
+
+    nkFaces = _mesh.getSurfacesJ().sizeK();
+    niFaces = _mesh.getSurfacesJ().sizeI();
+    _boundaryConditionsMapJ.resize(niFaces, 2, nkFaces);
+
+    niFaces = _mesh.getSurfacesK().sizeI();
+    njFaces = _mesh.getSurfacesK().sizeJ();
+    _boundaryConditionsMapK.resize(niFaces, njFaces, 2);
+
+    std::cout << "Boundary conditions read from file: " << filename << std::endl;
+
 
     // instantiate boundary objects
-    for (auto& bound : bounds) {
-        if (_boundaryTypes[bound] == BoundaryType::INVISCID_WALL || _boundaryTypes[bound] == BoundaryType::NO_SLIP_WALL){
-            _boundaryConditions[bound] = std::make_unique<BoundaryInviscidWall>(
+    for (auto& bound : _boundaries) {
+        if (bound.type == BoundaryType::INVISCID_WALL || bound.type == BoundaryType::NO_SLIP_WALL){
+            bound.fluxMethod = std::make_unique<BoundaryInviscidWall>(
                 _config, 
                 _mesh, 
-                *_fluid, 
-                bound);
+                *_fluid);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::INLET){
-            _boundaryConditions[bound] = std::make_unique<BoundaryInlet>(
+        else if (bound.type == BoundaryType::INLET){
+            bound.fluxMethod = std::make_unique<BoundaryInlet>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
-                _boundaryValues[bound]);
+                bound.values);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::INLET_2D){
-            _boundaryConditions[bound] = std::make_unique<BoundaryInlet2D>(
+        else if (bound.type == BoundaryType::INLET_2D){
+            bound.fluxMethod = std::make_unique<BoundaryInlet2D>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
                 _inlet2DfilePath);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::INLET_SUPERSONIC){
-            _boundaryConditions[bound] = std::make_unique<BoundaryInletSupersonic>(
+        else if (bound.type == BoundaryType::INLET_SUPERSONIC){
+            bound.fluxMethod = std::make_unique<BoundaryInletSupersonic>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
-                _boundaryValues[bound]);
+                bound.values);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::OUTLET){
-            _boundaryConditions[bound] = std::make_unique<BoundaryOutlet>(
+        else if (bound.type == BoundaryType::OUTLET){
+            bound.fluxMethod = std::make_unique<BoundaryOutlet>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
-                _boundaryValues[bound]);
+                bound.values);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::RADIAL_EQUILIBRIUM){
-            _boundaryConditions[bound] = std::make_unique<BoundaryOutletRadialEquilibrium>(
+        else if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM){
+            bound.fluxMethod = std::make_unique<BoundaryOutletRadialEquilibrium>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
-                _radialProfilePressure);
+                _radialEquilibriumProfiles.back().pressure);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::OUTLET_SUPERSONIC){
-            _boundaryConditions[bound] = std::make_unique<BoundaryOutletSupersonic>(
+        else if (bound.type == BoundaryType::OUTLET_SUPERSONIC){
+            bound.fluxMethod = std::make_unique<BoundaryOutletSupersonic>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
-                _boundaryValues[bound]);
+                bound.values);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::THROTTLE){
-            _boundaryConditions[bound] = std::make_unique<BoundaryOutletThrottle>(
+        else if (bound.type == BoundaryType::THROTTLE){
+            bound.fluxMethod = std::make_unique<BoundaryOutletThrottle>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
-                _radialProfilePressure);
+                _radialEquilibriumProfiles.back().pressure);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::WEDGE){
-            _boundaryConditions[bound] = std::make_unique<BoundaryFake>(
+        else if (bound.type == BoundaryType::WEDGE){
+            bound.fluxMethod = std::make_unique<BoundaryFake>(
                 _config, 
                 _mesh, 
-                *_fluid, 
-                bound);
+                *_fluid);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::PERIODIC){
-            _boundaryConditions[bound] = std::make_unique<BoundaryFake>(
+        else if (bound.type == BoundaryType::PERIODIC){
+            bound.fluxMethod = std::make_unique<BoundaryFake>(
                 _config, 
                 _mesh, 
-                *_fluid, 
-                bound);
+                *_fluid);
         }
-        else if (_boundaryTypes[bound] == BoundaryType::TRANSPARENT){
-            _boundaryConditions[bound] = std::make_unique<BoundaryTransparent>(
+        else if (bound.type == BoundaryType::TRANSPARENT){
+            bound.fluxMethod = std::make_unique<BoundaryTransparent>(
                 _config, 
                 _mesh, 
                 *_fluid, 
-                bound, 
                 *_advection);
+        }
+    }
+
+    // now associate every boundary face to the flux method pointer stored in _boundaries
+    for (const auto& bound : _boundaries) {
+        size_t i_min = bound.i_min;
+        size_t i_max = bound.i_max;
+        size_t j_min = bound.j_min;
+        size_t j_max = bound.j_max;
+        size_t k_min = bound.k_min;
+        size_t k_max = bound.k_max;
+        
+        // TO DO: need to translate node numbering of bound object to face numbering of boundary conditions map 
+        size_t itmp, jtmp, ktmp;
+        if (i_min == i_max) { 
+            if (i_min == 0) {
+                itmp = 0;
+            }
+            else {
+                itmp = 1;
+            }
+            for (size_t j = j_min; j < j_max; ++j) {
+                for (size_t k = k_min; k < k_max; ++k) {
+                    _boundaryConditionsMapI(itmp, j, k) = bound.fluxMethod;
+                }
+            }
+        } 
+        else if (j_min == j_max) { // J boundaries
+            if (j_min == 0) {
+                jtmp = 0;
+            }
+            else {
+                jtmp = 1;
+            }
+            for (size_t i = i_min; i < i_max; ++i) {
+                for (size_t k = k_min; k < k_max; ++k) {
+                    _boundaryConditionsMapJ(i, jtmp, k) = bound.fluxMethod;
+                }
+            }
+        }
+        else if (k_min == k_max) { // K boundaries
+            if (k_min == 0) {
+                ktmp = 0;
+            }
+            else {
+                ktmp = 1;
+            }
+            for (size_t i = i_min; i < i_max; ++i) {
+                for (size_t j = j_min; j < j_max; ++j) {
+                    _boundaryConditionsMapK(i, j, ktmp) = bound.fluxMethod;
+                }
+            }
+        }
+        else {
+            throw std::runtime_error("Invalid boundary definition: " + bound.name);
         }
     }
 }
@@ -234,6 +365,26 @@ void SolverBase::getBoundarySliceIndices(
     }
 }
 
+const Matrix3D<std::shared_ptr<BoundaryBase>>& SolverBase::getBoundaryConditionsMap(FluxDirection direction) const {
+    switch (direction)
+    {
+    case FluxDirection::I:
+        return _boundaryConditionsMapI;
+        break;
+    case FluxDirection::J:
+        return _boundaryConditionsMapJ;
+        break;
+    case FluxDirection::K:
+        return _boundaryConditionsMapK;
+        break;
+    default:
+        throw std::runtime_error("Invalid flux direction.");
+    }
+}
+
+
+
+
 
 void SolverBase::computeWallDistance() {
     _wallDistance.resize(_nPointsI, _nPointsJ, _nPointsK);
@@ -242,9 +393,10 @@ void SolverBase::computeWallDistance() {
             for (size_t k = 0; k < _nPointsK; ++k) {
                 FloatType minDistance = 1.0E9;
                 FloatType distanceTmp = 1.0E9;
-                for (auto& bound : _boundaryTypes) {
-                    if (bound.second == BoundaryType::INVISCID_WALL || bound.second == BoundaryType::NO_SLIP_WALL){ 
-                        distanceTmp = computeMinimumDistanceToBoundary(i, j, k, bound.first);
+
+                for (auto& bound : _boundaries) {
+                    if (bound.type == BoundaryType::NO_SLIP_WALL){ 
+                        distanceTmp = computeMinimumDistanceToBoundary(i, j, k, bound);
                     }
                     if (distanceTmp < minDistance){
                         minDistance = distanceTmp;
@@ -257,15 +409,42 @@ void SolverBase::computeWallDistance() {
 }
 
 
-FloatType SolverBase::computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, BoundaryIndex boundaryIdx) const {
+FloatType SolverBase::computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, Boundary boundary) const {
     size_t iStart, iLast, jStart, jLast, kStart, kLast;
-    getBoundarySliceIndices(boundaryIdx, iStart, iLast, jStart, jLast, kStart, kLast);
+    iStart = boundary.i_min;
+    iLast = boundary.i_max;
+    jStart = boundary.j_min;
+    jLast = boundary.j_max;
+    kStart = boundary.k_min;
+    kLast = boundary.k_max;
+
+    // fix the indexing
+    if (iStart == iLast){
+        iLast += 2;
+    }
+    else if (iLast == iStart+1){
+        iLast += 1;
+    }
+
+    if (jStart == jLast){
+        jLast += 2;
+    }
+    else if (jLast == jStart+1){
+        jLast += 1;
+    }
+
+    if (kStart == kLast){
+        kLast += 2;
+    }
+    else if (kLast == kStart+1){
+        kLast += 1;
+    }
     
     FloatType dx, dy, dz;
     FloatType minDistance = 1.0E9;
-    for (size_t ib = iStart; ib < iLast; ++ib) {
-        for (size_t jb = jStart; jb < jLast; ++jb) {
-            for (size_t kb = kStart; kb < kLast; ++kb) {
+    for (size_t ib = iStart; ib < iLast-1; ++ib) {
+        for (size_t jb = jStart; jb < jLast-1; ++jb) {
+            for (size_t kb = kStart; kb < kLast-1; ++kb) {
                 dx = _mesh.getVertex(i,j,k).x() - _mesh.getVertex(ib,jb,kb).x();
                 dy = _mesh.getVertex(i,j,k).y() - _mesh.getVertex(ib,jb,kb).y();
                 dz = _mesh.getVertex(i,j,k).z() - _mesh.getVertex(ib,jb,kb).z();

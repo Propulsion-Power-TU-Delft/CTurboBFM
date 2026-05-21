@@ -135,12 +135,6 @@ public:
 
     FloatType getFluidPrandtlNumber() const {return parseFloat("FLUID_PRANDTL_NUMBER");}
 
-    BoundaryType getBoundaryType(const BoundaryIndex) const;
-
-    std::vector<FloatType> getInletBCValues() const { return parseVector<FloatType>("INLET_VALUE");}
-
-    std::vector<FloatType> getOutletBCValues() const { return parseVector<FloatType>("OUTLET_VALUE");}
-
     FloatType getInitMachNumber() const { return parseFloat("INIT_MACH_NUMBER");}
     
     FloatType getInitPressure() const { return parseFloat("INIT_PRESSURE");}
@@ -212,14 +206,6 @@ public:
 
     size_t getSolutionOutputFrequency() const {return getSaveIterationsInterval();}
 
-    FloatType getPeriodicityAngleRad() const {return getPeriodicityAngleDeg()*M_PI/180.0;} 
-
-    FloatType getPeriodicityAngleDeg() const {return getPeriodicityInfo()[1];} 
-
-    FloatType getPeriodicityTranslation() const {return getPeriodicityInfo()[0];} 
-
-    std::vector<FloatType> getPeriodicityInfo() const;
-
     void printAllConfigValues() const;
 
     FloatType computeRampedOutletPressure(const size_t iterCounter, const FloatType outletPressure) const;
@@ -250,7 +236,15 @@ public:
 
     FluxLimiter getFluxLimiter() const ;
 
+    std::string getBoundaryConditionsFilePath() const {return parseString("BOUNDARY_CONDITIONS_FILEPATH");}
+
     std::vector<FloatType> getPerturbationCenter() const {return parseVector<FloatType>("PERTURBATION_CENTER");}
+
+    std::vector<std::string> getBoundaryInfo(std::string name) const {return parseVector<std::string>(name);}
+
+    BoundaryType getBoundaryType(std::string name) const;
+
+    std::vector<FloatType> getBoundaryValues(std::string name) const;
 
     FloatType getPerturbationScalingFactor() const {return parseFloat("PERTURBATION_SCALING_FACTOR");} 
 
@@ -271,8 +265,6 @@ public:
     FloatType getKnCorrelationBfmCoefficient() const {return parseFloat("KN_CORRELATION_BFM_COEFFICIENT");}
 
     FloatType getGreitzerPlenumVolume() const {return parseFloat("GREITZER_PENUM_VOLUME");} 
-
-    FloatType getGreitzerThrottleCoefficient() const {return getOutletBCValues()[0];} 
 
     bool isAccelerationActive() const {return parseBool("ACCELERATION_ACTIVE", false);}
 

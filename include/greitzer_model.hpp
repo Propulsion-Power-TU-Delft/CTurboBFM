@@ -8,7 +8,8 @@ class GreitzerModel {
 public:
     GreitzerModel(
         const Config &config, 
-        const FluidBase &fluid);
+        const FluidBase &fluid,
+        FloatType throttleCoefficient);
 
     virtual ~GreitzerModel() = default;  
 
