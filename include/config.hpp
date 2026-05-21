@@ -114,10 +114,14 @@ public:
     std::string restartSolutionFilepath() const;
     
     bool isBFMActive() const;
+
+    bool isTurbulenceActive() const;
     
     bool isBlockageActive() const;
     
     BodyForceModel getBFMModel() const;
+
+    TurbulenceModel getTurbulenceModel() const;
 
     KindSolver getKindSolver() const;
 

@@ -162,6 +162,10 @@ bool Config::isBFMActive() const {
     return parseBool("BFM_ACTIVE", false);
 }
 
+bool Config::isTurbulenceActive() const {
+    return parseBool("TURBULENCE_ACTIVE", false);
+}
+
 bool Config::isBlockageActive() const {
     return parseBool("BLOCKAGE_ACTIVE", false);
 }
@@ -189,6 +193,21 @@ BodyForceModel Config::getBFMModel() const {
     }
     return model;
 }
+
+TurbulenceModel Config::getTurbulenceModel() const {
+    string value = parseString("TURBULENCE_MODEL", true);
+    TurbulenceModel model = TurbulenceModel::NONE;
+    if (value == "SA") {
+        model = TurbulenceModel::SPALART_ALLMARAS;
+    } else if (value == "None") {
+        model = TurbulenceModel::NONE;
+    }
+    else {
+        throw std::runtime_error("Invalid value for key \"TURBULENCE_MODEL\" in configuration.");
+    }
+    return model;
+}
+
 
 KindSolver Config::getKindSolver() const {
     string value = parseString("KIND_SOLVER");

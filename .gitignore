@@ -33,6 +33,7 @@
 .a
 bin/
 dev/
+main
 
 
 # weird files
@@ -55,3 +56,5 @@ dev/
 *cmake*
 *.ninja
 
+# folders
+dev/
