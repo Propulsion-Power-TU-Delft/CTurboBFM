@@ -107,7 +107,7 @@ void SolverBase::readBoundaryConditions(){
 
     // for specific bcs allocate the required data structures
     for (auto& bound : _boundaries) {
-        if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM){
+        if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM || bound.type == BoundaryType::THROTTLE){
             RadialEquilibriumProfile profile;
             profile.boundary = bound;
 

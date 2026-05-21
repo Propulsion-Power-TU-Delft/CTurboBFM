@@ -13,7 +13,20 @@ SolverEuler::SolverEuler(Config& config, Mesh& mesh)
 {
     _isGreitzerModelingActive = _config.enableGreitzerModeling();
     if (_isGreitzerModelingActive) {
-        _greitzerModel = std::make_unique<GreitzerModel>(_config, *_fluid);
+        FloatType throttleCoeff;
+        bool hasThrottleCoeff = false;
+        for (auto& bound : _boundaries) {
+            if (bound.type == BoundaryType::THROTTLE){ 
+                hasThrottleCoeff = true;
+                throttleCoeff = bound.values[0];
+            }
+        }
+
+        if (!hasThrottleCoeff) {
+            throw std::runtime_error("Greitzer modeling enabled but no throttle boundary condition found!");
+        }
+
+        _greitzerModel = std::make_unique<GreitzerModel>(_config, *_fluid, throttleCoeff);
     }
     
     initializeSolutionArrays();
@@ -1284,40 +1297,35 @@ void SolverEuler::updateRadialProfiles(FlowSolution &solution){
             velTangProfile[k] = std::abs(velocityCyl.z());
             k++;
         }
-        _hubStaticPressure = radialProfile.pressure[0]; // correct?
+        if (radialProfile.boundary.type == BoundaryType::THROTTLE){
+            FloatType kt = radialProfile.boundary.values[0];
+            FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
+            FloatType Pt_in;
+            for (auto& boundary: _boundaries){
+                if (boundary.type == BoundaryType::INLET){
+                    Pt_in = boundary.values[0];
+                    break;
+                }
+            }
+            _hubStaticPressure = Pt_in + kt * mflow*mflow;
+        }
+        else if (radialProfile.boundary.type == BoundaryType::RADIAL_EQUILIBRIUM){  
+            _hubStaticPressure = radialProfile.pressure[0];
+        }
 
         integrateRadialEquilibrium(
             densityProfile, 
             velTangProfile, 
             radialProfile.radius, 
-            _hubStaticPressure, 
-            radialProfile.pressure);
+            radialProfile.pressure,
+            _hubStaticPressure);
         
     }
-    
 
-    
-
-    // if (_boundaryTypes[BoundaryIndex::I_END] == BoundaryType::THROTTLE && _isGreitzerModelingActive==false){
-    //     FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
-    //     FloatType totPressureInlet = _config.getInletBCValues().at(0);
-    //     FloatType throttleCoeff = _config.getOutletBCValues()[0];
-    //     _hubStaticPressure = totPressureInlet + throttleCoeff * mflow*mflow;
-    // }
-    // else if (_boundaryTypes[BoundaryIndex::I_END] == BoundaryType::THROTTLE && _isGreitzerModelingActive==true){
-    //     FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
-    //     _hubStaticPressure = _greitzerModel->computePlenumPressure(mflow);
-    // }
-    // else {
-    //     // nothing needed in other cases
-    //     }
-
-    // integrateRadialEquilibrium(
-    //     densityProfile, 
-    //     velTangProfile, 
-    //     _radialProfileRadialCoords, 
-    //     _hubStaticPressure, 
-    //     _radialProfilePressure);
+    if (_isGreitzerModelingActive){
+        FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
+        _hubStaticPressure = _greitzerModel->computePlenumPressure(mflow);
+    }
 
 }
 

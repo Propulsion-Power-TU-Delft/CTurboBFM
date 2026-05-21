@@ -141,13 +141,12 @@ Vector3D computeCartesianComponentsFromCylindrical(Vector3D vec, FloatType theta
 void integrateRadialEquilibrium(const std::vector<FloatType>& density,
     const std::vector<FloatType>& velocityTang,
     const std::vector<FloatType>& radius,
-    const FloatType& hubPressure,
-    std::vector<FloatType>& pressure)
+    std::vector<FloatType>& pressure,
+    FloatType& newHubPressure)
 {
 
     const size_t N = radius.size();
-    pressure[0] = hubPressure;
-
+    pressure[0] = newHubPressure; 
     for (size_t i = 1; i < N; ++i) {
         FloatType r1 = radius[i - 1];
         FloatType r2 = radius[i];
