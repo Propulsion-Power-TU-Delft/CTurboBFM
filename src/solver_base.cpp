@@ -127,7 +127,7 @@ void SolverBase::readBoundaryConditions(){
             }
             
             for (size_t j=bound.j_min; j<bound.j_max; j++){
-                FloatType radius = _mesh.getRadius(bound.i_min-1, j, 0);
+                FloatType radius = _mesh.getRadius(bound.i_max-1, j, 0);
                 profile.radius.push_back(radius);
             }
             profile.pressure.resize(nPoints);
@@ -267,7 +267,7 @@ void SolverBase::readBoundaryConditions(){
         size_t k_min = bound.k_min;
         size_t k_max = bound.k_max;
         
-        // TO DO: need to translate node numbering of bound object to face numbering of boundary conditions map 
+        // Translate node numbering of bound object to dual node numbering of boundary conditions map 
         size_t itmp, jtmp, ktmp;
         if (i_min == i_max) { 
             if (i_min == 0) {
@@ -382,10 +382,6 @@ const Matrix3D<std::shared_ptr<BoundaryBase>>& SolverBase::getBoundaryConditions
     }
 }
 
-
-
-
-
 void SolverBase::computeWallDistance() {
     _wallDistance.resize(_nPointsI, _nPointsJ, _nPointsK);
     for (size_t i = 0; i < _nPointsI; ++i) {
@@ -407,7 +403,6 @@ void SolverBase::computeWallDistance() {
         }
     }
 }
-
 
 FloatType SolverBase::computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, Boundary boundary) const {
     
