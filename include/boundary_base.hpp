@@ -69,3 +69,17 @@ struct RadialEquilibriumProfile {
     std::vector<FloatType> radius;
     Boundary boundary;
 };
+
+// indexing referred to primary nodes
+struct BoundaryNodesIndexRange
+{
+    size_t iStart, iLast;
+    size_t jStart, jLast;
+    size_t kStart, kLast;
+};
+
+BoundaryNodesIndexRange fetchBoundaryNodesIndexRange(
+    const Boundary& boundary,
+    const size_t& nPointsI, 
+    const size_t& nPointsJ, 
+    const size_t& nPointsK);
