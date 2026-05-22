@@ -29,10 +29,10 @@ TEST(WallDistanceTest, Along_X) {
             for (size_t k = 0; k < nk; ++k) {
                 Vector3D vertex = vertices(i,j,k);
                 FloatType expectedDistance = std::min(std::abs(vertex.x()), LX - std::abs(vertex.x()));
-                ASSERT_DOUBLE_EQ(wallDistance(i,j,k), expectedDistance);
                 std::cout << "Vertex (" << vertex.x() << ", " << vertex.y() << ", " << vertex.z() << ") - "
                           << "Computed distance: " << wallDistance(i,j,k) << ", "
                           << "Expected distance: " << expectedDistance << std::endl;
+                ASSERT_DOUBLE_EQ(wallDistance(i,j,k), expectedDistance);
             }
         }
     }
@@ -63,10 +63,10 @@ TEST(WallDistanceTest, Along_Y) {
             for (size_t k = 0; k < nk; ++k) {
                 Vector3D vertex = vertices(i,j,k);
                 FloatType expectedDistance = std::min(std::abs(vertex.y()), LY - std::abs(vertex.y()));
-                ASSERT_DOUBLE_EQ(wallDistance(i,j,k), expectedDistance);
                 std::cout << "Vertex (" << vertex.x() << ", " << vertex.y() << ", " << vertex.z() << ") - "
                           << "Computed distance: " << wallDistance(i,j,k) << ", "
                           << "Expected distance: " << expectedDistance << std::endl;
+                ASSERT_DOUBLE_EQ(wallDistance(i,j,k), expectedDistance);
             }
         }
     }

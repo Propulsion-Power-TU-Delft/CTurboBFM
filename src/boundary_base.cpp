@@ -79,3 +79,45 @@ StateVector BoundaryBase::computeOutletFlux(
 
 }
 
+
+BoundaryNodesIndexRange fetchBoundaryNodesIndexRange(
+    const Boundary& boundary,
+    const size_t& nPointsI, 
+    const size_t& nPointsJ, 
+    const size_t& nPointsK)
+{
+    BoundaryNodesIndexRange range{
+        boundary.i_min, boundary.i_max, boundary.j_min, boundary.j_max, boundary.k_min, boundary.k_max
+    };
+
+
+    if (range.iStart == range.iLast && range.iStart == 0) {
+        range.iLast = 1;
+    }
+    else if (range.iStart == range.iLast && range.iStart == nPointsI) {
+        range.iStart = nPointsI - 1;
+        range.iLast  = range.iStart + 1;
+    }
+    else if (range.jStart == range.jLast && range.jStart == 0) {
+        range.jLast = 1;
+    }
+    else if (range.jStart == range.jLast && range.jStart == nPointsJ) {
+        range.jStart = nPointsJ - 1;
+        range.jLast  = range.jStart + 1;
+    }
+    else if (range.kStart == range.kLast && range.kStart == 0) {
+        range.kLast = 1;
+    }
+    else if (range.kStart == range.kLast && range.kStart == nPointsK) {
+        range.kStart = nPointsK - 1;
+        range.kLast  = range.kStart + 1;
+    }
+    else {
+        throw std::runtime_error(
+            std::string("Invalid indexing on boundary condition specs for patch ")
+            + boundary.name
+        );
+    }
+
+    return range;
+}
