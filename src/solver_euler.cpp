@@ -37,7 +37,8 @@ SolverEuler::SolverEuler(Config& config, Mesh& mesh)
         _conservativeSolution, 
         *_fluid, _inviscidForce, 
         _viscousForce, 
-        _deviationAngle);
+        _deviationAngle,
+        _wallDistance);
 
     BodyForceModel bfmModel = _config.getBFMModel();
     if (bfmModel == BodyForceModel::HALL) {

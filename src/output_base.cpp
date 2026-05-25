@@ -9,7 +9,8 @@ OutputBase::OutputBase(
     const FluidBase &fluid, 
     const Matrix3D<Vector3D> &inviscidForce, 
     const Matrix3D<Vector3D> &viscousForce,
-    const Matrix3D<FloatType> &deviationAngle)
+    const Matrix3D<FloatType> &deviationAngle,
+    const Matrix3D<FloatType> &wallDistance)
     : _config(config), 
     _mesh(mesh), 
     _solution(solution), 
@@ -17,6 +18,7 @@ OutputBase::OutputBase(
     _inviscidForce(inviscidForce), 
     _viscousForce(viscousForce), 
     _deviationAngle(deviationAngle),
+    _wallDistance(wallDistance),
     _isUnsteadyOutput(_config.saveUnsteadySolution()) {    
     std::filesystem::create_directory(_outputDirectory);
     _outputFields = _config.getOutputFields();
@@ -98,7 +100,11 @@ void OutputBase::allocateSpaceForOutput(
         fieldsMap.emplace("Inviscid Body Force Z",  Matrix3D<FloatType>(ni, nj, nk));
         fieldsMap.emplace("Deviation Angle",        Matrix3D<FloatType>(ni, nj, nk));
     }
+
+    if (_config.isTurbulenceActive()){
+        fieldsMap.emplace("Wall Distance",        Matrix3D<FloatType>(ni, nj, nk));
     }
+}
     
 
 void OutputBase::storeFields(
@@ -161,6 +167,10 @@ void OutputBase::storeFields(
                         fieldsMap["Inviscid Body Force Z"](i, j, k) = _inviscidForce(i, j, k).z();
 
                         fieldsMap["Deviation Angle"](i, j, k) = _deviationAngle(i, j, k);
+                    }
+
+                    if (_config.isTurbulenceActive()){
+                        fieldsMap["Wall Distance"](i, j, k) = _wallDistance(i, j, k);
                     }
 
                 }
