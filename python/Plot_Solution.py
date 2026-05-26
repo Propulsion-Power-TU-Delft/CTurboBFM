@@ -7,7 +7,7 @@ import pandas as pd
 import argparse
 import os
 import matplotlib.pyplot as plt
-# from styles import *
+from styles import *
 
 NLEVELS = 30
 
