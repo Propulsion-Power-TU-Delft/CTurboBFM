@@ -1,8 +1,7 @@
 #include <iostream>
 #include "mesh.hpp"
 #include "config.hpp"
-#include "solver_base.hpp"
-#include "solver_euler.hpp"
+#include "solver.hpp"
 
 
 int main(int argc, char* argv[]) {
@@ -19,10 +18,10 @@ int main(int argc, char* argv[]) {
     
     KindSolver kindSolver = config.getKindSolver();
     
-    std::unique_ptr<SolverBase> solver;
+    std::unique_ptr<Solver> solver;
     
     if (kindSolver == KindSolver::EULER) {
-       solver = std::make_unique<SolverEuler>(config, mesh);
+       solver = std::make_unique<Solver>(config, mesh);
     }
     else {
         std::cerr << "Unsupported solver kind: " << static_cast<int>(kindSolver) << std::endl;

@@ -1,7 +1,9 @@
 #pragma once
-
-#include "solver_base.hpp"
-#include "fstream"
+#include "config.hpp"
+#include "mesh.hpp"
+#include "fluid_base.hpp"
+#include "output_base.hpp"
+#include <fstream>
 #include <filesystem>
 
 

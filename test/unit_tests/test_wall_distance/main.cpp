@@ -2,16 +2,15 @@
 #include "mesh.hpp"
 #include "config.hpp"
 #include "gtest/gtest.h"
-#include "solver_base.hpp"
-#include "solver_euler.hpp"
+#include "solver.hpp"
 
 
 TEST(WallDistanceTest, Along_X) {
     Config config("input_walls_along_x.ini");
     Mesh mesh(config);
 
-    std::unique_ptr<SolverBase> solver;
-    solver = std::make_unique<SolverEuler>(config, mesh);
+    std::unique_ptr<Solver> solver;
+    solver = std::make_unique<Solver>(config, mesh);
     
     Matrix3D<Vector3D> vertices = solver->getVertices();
     Matrix3D<FloatType> wallDistance = solver->getWallDistance();
@@ -44,8 +43,8 @@ TEST(WallDistanceTest, Along_Y) {
     Config config("input_walls_along_y.ini");
     Mesh mesh(config);
 
-    std::unique_ptr<SolverBase> solver;
-    solver = std::make_unique<SolverEuler>(config, mesh);
+    std::unique_ptr<Solver> solver;
+    solver = std::make_unique<Solver>(config, mesh);
     
     Matrix3D<Vector3D> vertices = solver->getVertices();
     Matrix3D<FloatType> wallDistance = solver->getWallDistance();
@@ -78,8 +77,8 @@ TEST(WallDistanceTest, Along_Z) {
     Config config("input_walls_along_z.ini");
     Mesh mesh(config);
 
-    std::unique_ptr<SolverBase> solver;
-    solver = std::make_unique<SolverEuler>(config, mesh);
+    std::unique_ptr<Solver> solver;
+    solver = std::make_unique<Solver>(config, mesh);
     
     Matrix3D<Vector3D> vertices = solver->getVertices();
     Matrix3D<FloatType> wallDistance = solver->getWallDistance();

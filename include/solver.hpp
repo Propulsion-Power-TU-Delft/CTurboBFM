@@ -1,6 +1,5 @@
 #pragma once
 #include "types.hpp"
-#include "solver_base.hpp"
 #include "output_base.hpp"
 #include "output_csv.hpp"
 #include "source_bfm_base.hpp"
@@ -12,26 +11,60 @@
 #include "greitzer_model.hpp"   
 #include "turbulence_model_base.hpp"
 #include "turbulence_model_sa.hpp"
+#include "config.hpp"
+#include "mesh.hpp"
+#include "fluid_base.hpp"
+#include "fluid_ideal.hpp"
+#include "advection_base.hpp"
+#include "advection_jst.hpp"
+#include "advection_roe.hpp"
+#include "boundary_base.hpp"
+#include "boundary_inviscid_wall.hpp"
+#include "boundary_inlet_2d.hpp"
+#include "boundary_outlet.hpp"
+#include "boundary_inlet_supersonic.hpp"
+#include "boundary_outlet_supersonic.hpp"
+#include "boundary_outlet_radial_equilibrium.hpp"
+#include "boundary_fake.hpp"
+#include "boundary_outlet_throttle.hpp"
+#include "boundary_transparent.hpp"
+#include <fstream>
+#include <sstream>
+#include <iostream>
 #include <unordered_map>
+#include <memory>
+#include <vector>
+#include <array>
 
-class SolverEuler : public SolverBase {
+class Solver {
 
 public:
 
-    SolverEuler(Config& config, Mesh& mesh);
+    Solver(Config& config, Mesh& mesh);
 
-    ~SolverEuler() = default;
+    ~Solver() = default;
 
-    void solve() override;
+    void solve();
 
-    virtual void checkConvergence(bool &exitLoop, bool &isSteady) const override;
+    void writeSolution(size_t iterationCounter, bool alsoGradients=false);
 
-    void writeSolution(size_t iterationCounter, bool alsoGradients=false) override;
+    inline const Matrix3D<FloatType> getWallDistance() const {
+        return _wallDistance;
+    }
 
+    inline const Matrix3D<Vector3D> getVertices() const {
+        return _mesh.getVertices();
+    }
 
 private:
 
-    void initializeSolutionArrays() override;
+    void checkConvergence(bool &exitLoop, bool &isSteady) const;
+
+    const std::array<int, 3> getStepMask(FluxDirection direction) const;
+
+    void readBoundaryConditions();
+
+    void initializeSolutionArrays();
 
     void computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatType> &timestep);
 
@@ -49,6 +82,41 @@ private:
 
     void buildOutputStructure();
 
+    void setupSolverInfo();
+
+    void buildFluidModel();
+
+    void buildAdvectionModel();
+
+    void readBoundaryFile();
+
+    void buildBoundaryDataStructures();
+    
+    void buildBoundaryFluxes();
+    
+    void buildBoundaryConditionsMap();
+
+    FloatType getHubStaticPressure() const { 
+        return _hubStaticPressure; 
+    }
+
+    /** fetch indices for a 2D boundary slice of the 3D problem structure */
+    void getBoundarySliceIndices(
+        BoundaryIndex boundaryIdx, 
+        size_t &iStart, 
+        size_t &iLast, 
+        size_t &jStart, 
+        size_t &jLast, 
+        size_t &kStart, 
+        size_t &kLast) const;
+        
+    const Matrix3D<std::shared_ptr<BoundaryBase>>& getBoundaryConditionsMap(FluxDirection direction) const;
+    
+    
+
+    void computeWallDistance() ;
+
+    FloatType computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, Boundary boundary) const;
 
     /** @brief compute the global residual, defined as V*dU/dt + R = 0 -> R = fluxes - source terms */
     void computeResiduals(
@@ -199,6 +267,43 @@ protected:
         bool &gongSourceFlag) const;
 
 private:
+    const Config& _config;
+    Mesh& _mesh;
+    size_t _nDimensions {0}, _nPointsI {0}, _nPointsJ {0}, _nPointsK {0};
+    Topology _topology;
+    
+    Matrix3D<FloatType> _timeStep;
+
+    Matrix3D<FloatType> _wallDistance;
+    
+    std::vector<FloatType> _time;
+    
+    std::unique_ptr<FluidBase> _fluid;
+    FluidModel _fluidModel = FluidModel::IDEAL;
+    
+    std::unique_ptr<AdvectionBase> _advection;
+    
+    std::vector<std::shared_ptr<BoundaryBase>> _boundaryConditions;
+    Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapI;
+    Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapJ;
+    Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapK;
+    
+    FloatType _hubStaticPressure;
+    std::vector<RadialEquilibriumProfile> _radialEquilibriumProfiles;
+
+    std::string _inlet2DfilePath{""}; 
+
+    std::map<BoundaryIndex, FloatType> _massFlows;
+    std::map<TurboPerformance, std::vector<FloatType>> _turboPerformance; 
+    std::vector<std::map<MonitorOutputField, std::vector<FloatType>>> _monitorPoints; 
+    std::vector<Boundary> _boundaries;
+
+    size_t _residualsDropConvergence {16};
+
+    FloatType _periodicityTranslation;
+    FloatType _periodicityAngleDeg;
+    FloatType _periodicityAngleRad;
+
     FlowSolution _conservativeSolution; 
     std::map<SolutionName, Matrix3D<Vector3D>> _solutionGrad;
     std::unique_ptr<OutputBase> _output;

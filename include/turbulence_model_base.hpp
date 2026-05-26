@@ -7,7 +7,7 @@
 #include "fluid_ideal.hpp"
 #include "math_utils.hpp"
 #include "input_table.hpp"
-#include "solver_euler.hpp"
+#include "solver.hpp"
 
 
 class TurbulenceModelBase {
@@ -19,5 +19,5 @@ public:
     // virtual void initialize() = 0;
 
 protected:
-    // SolverEuler* _solver;
+    // Solver* _solver;
 };

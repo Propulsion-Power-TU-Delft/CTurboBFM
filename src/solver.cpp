@@ -1,4 +1,4 @@
-#include "solver_euler.hpp"
+#include "solver.hpp"
 #include "math_utils.hpp"
 #include "types.hpp"
 #include <iostream>
@@ -8,16 +8,450 @@
 #include <fstream>
 #include <string>
 
-SolverEuler::SolverEuler(Config& config, Mesh& mesh)
-    : SolverBase(config, mesh)  
+Solver::Solver(Config& config, Mesh& mesh)
+    : _config(config), _mesh(mesh)
 {
+    setupSolverInfo();
+    buildFluidModel();
+    buildAdvectionModel();
+    readBoundaryConditions();
+    computeWallDistance();
     buildBfmInfo();
     initializeSolutionArrays();
     buildTurbulenceModel();
     buildOutputStructure();
 }
 
-void SolverEuler::buildBfmInfo(){
+void Solver::setupSolverInfo() {
+    _nDimensions = _mesh.getNumberDimensions();
+    _nPointsI = _mesh.getNumberPointsI();
+    _nPointsJ = _mesh.getNumberPointsJ();
+    _nPointsK = _mesh.getNumberPointsK();
+
+    _timeStep.resize(_nPointsI, _nPointsJ, _nPointsK);
+    _time.push_back(0.0);
+
+    _topology = _config.getTopology();
+
+    _residualsDropConvergence = _config.getResidualsDropConvergence();  
+}
+
+void Solver::buildFluidModel() {
+    _fluidModel = _config.getFluidModel();
+    if (_fluidModel == FluidModel::IDEAL){
+        _fluid = std::make_unique<FluidIdeal>(_config.getFluidGamma(), _config.getFluidGasConstant());
+    }
+    else if (_fluidModel == FluidModel::REAL){
+        throw std::runtime_error("Real fluid model not implemented yet.");
+    }
+    else{
+        throw std::runtime_error("Unsupported fluid model selected.");
+    }
+}
+
+void Solver::buildAdvectionModel() {
+    AdvectionScheme advectionScheme = _config.getAdvectionScheme();
+    switch (advectionScheme)
+    {
+    case AdvectionScheme::JST:
+        _advection = std::make_unique<AdvectionJst>(_config, *_fluid);
+        break;
+    case AdvectionScheme::ROE:
+        _advection = std::make_unique<AdvectionRoe>(_config, *_fluid);
+        break;
+    default:
+        throw std::runtime_error("Unsupported convection scheme selected.");
+    }
+}
+
+void Solver::readBoundaryConditions(){
+    readBoundaryFile();
+    buildBoundaryDataStructures();
+    buildBoundaryFluxes();
+    buildBoundaryConditionsMap();
+}
+
+void Solver::readBoundaryFile() {
+    std::string filename = _config.getBoundaryConditionsFilePath();
+    std::ifstream file(filename);
+
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file: " + filename);
+    }
+
+    std::string line;
+    bool inDataSection = false;
+
+    while (std::getline(file, line)) {
+
+        // Skip empty lines
+        if (line.empty())
+            continue;
+
+        // Skip metadata lines (NDIMENSIONS=2, NI=177, etc.)
+        if (line.find('=') != std::string::npos)
+            continue;
+
+        // Detect CSV header — marks start of data section
+        if (line.find("PATCH_NAME") != std::string::npos) {
+            inDataSection = true;
+            continue;
+        }
+
+        if (!inDataSection)
+            continue;
+
+        // Parse patch data row
+        std::stringstream ss(line);
+        std::string token;
+        Boundary patch;
+
+        // PATCH_NAME
+        std::getline(ss, token, ',');
+        token.erase(std::remove(token.begin(), token.end(), ' '), token.end());
+        patch.name = token;
+
+        // I_MIN, I_MAX, J_MIN, J_MAX, K_MIN, K_MAX
+        auto readInt = [&]() {
+            std::getline(ss, token, ',');
+            token.erase(std::remove(token.begin(), token.end(), ' '), token.end());
+            return std::stoi(token);
+        };
+
+        patch.i_min = readInt();
+        patch.i_max = readInt();
+        patch.j_min = readInt();
+        patch.j_max = readInt();
+        patch.k_min = readInt();
+        patch.k_max = readInt();
+
+        patch.type   = _config.getBoundaryType(patch.name);
+        patch.values = _config.getBoundaryValues(patch.name);
+
+        _boundaries.push_back(patch);
+    }
+
+    std::cout << "Boundary conditions read from file: " << filename << std::endl;
+}
+
+void Solver::buildBoundaryDataStructures() {
+    for (auto& bound : _boundaries) {
+        if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM || bound.type == BoundaryType::THROTTLE){
+            RadialEquilibriumProfile profile;
+            profile.boundary = bound;
+
+            if(bound.i_min != bound.i_max){
+                throw std::runtime_error("Radial equilibrium only supported on j-k patches");
+            };
+
+            if(bound.i_min == 0){
+                throw std::runtime_error("Radial equilibrium only supported to the last i-position");
+            };
+
+            size_t nPoints = bound.j_max - bound.j_min;
+            if (nPoints <= 0) {
+                throw std::runtime_error("Invalid boundary indices for radial equilibrium patch: " + bound.name);
+            }
+            
+            for (size_t j=bound.j_min; j<bound.j_max; j++){
+                FloatType radius = _mesh.getRadius(bound.i_max-1, j, 0);
+                profile.radius.push_back(radius);
+            }
+            profile.pressure.resize(nPoints);
+            _radialEquilibriumProfiles.push_back(profile);
+        }
+        else if (bound.type == BoundaryType::PERIODIC){
+            FloatType boundaryId = bound.values[0];
+
+            if (boundaryId == 0){
+                _periodicityTranslation = bound.values[1];
+                _periodicityAngleDeg = bound.values[2];
+                if (_periodicityAngleDeg == 360.0){
+                    _periodicityAngleDeg = 0.0;
+                }
+                _periodicityAngleRad = _periodicityAngleDeg * M_PI / 180.0;
+                _mesh.checkPeriodicity(_periodicityTranslation, _periodicityAngleRad);
+            }
+            
+            // some restrictions for now, to be relaxed in the future
+            if (bound.k_min != bound.k_max){
+                throw std::runtime_error("Periodic boundary only supported on i-j patches");
+            };
+            if (bound.i_min != 0 || bound.j_min != 0 || bound.i_max != _nPointsI || bound.j_max != _nPointsJ){
+                throw std::runtime_error("Periodic boundary only supported on full i-j patches");
+            };
+            if (bound.k_min == 0 && boundaryId != 0){
+                throw std::runtime_error("Periodic boundary with i_min=0 must have boundary id 0");
+            }
+
+        }
+    }
+}
+
+void Solver::buildBoundaryFluxes() {
+    for (auto& bound : _boundaries) {
+        if (bound.type == BoundaryType::INVISCID_WALL || bound.type == BoundaryType::NO_SLIP_WALL){
+            bound.fluxMethod = std::make_unique<BoundaryInviscidWall>(
+                _config, 
+                _mesh, 
+                *_fluid);
+        }
+        else if (bound.type == BoundaryType::INLET){
+            bound.fluxMethod = std::make_unique<BoundaryInlet>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                bound.values);
+        }
+        else if (bound.type == BoundaryType::INLET_2D){
+            bound.fluxMethod = std::make_unique<BoundaryInlet2D>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                _inlet2DfilePath);
+        }
+        else if (bound.type == BoundaryType::INLET_SUPERSONIC){
+            bound.fluxMethod = std::make_unique<BoundaryInletSupersonic>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                bound.values);
+        }
+        else if (bound.type == BoundaryType::OUTLET){
+            bound.fluxMethod = std::make_unique<BoundaryOutlet>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                bound.values);
+        }
+        else if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM){
+            bound.fluxMethod = std::make_unique<BoundaryOutletRadialEquilibrium>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                _radialEquilibriumProfiles.back().pressure);
+        }
+        else if (bound.type == BoundaryType::OUTLET_SUPERSONIC){
+            bound.fluxMethod = std::make_unique<BoundaryOutletSupersonic>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                bound.values);
+        }
+        else if (bound.type == BoundaryType::THROTTLE){
+            bound.fluxMethod = std::make_unique<BoundaryOutletThrottle>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                _radialEquilibriumProfiles.back().pressure);
+        }
+        else if (bound.type == BoundaryType::WEDGE){
+            bound.fluxMethod = std::make_unique<BoundaryFake>(
+                _config, 
+                _mesh, 
+                *_fluid);
+        }
+        else if (bound.type == BoundaryType::PERIODIC){
+            bound.fluxMethod = std::make_unique<BoundaryFake>(
+                _config, 
+                _mesh, 
+                *_fluid);
+        }
+        else if (bound.type == BoundaryType::TRANSPARENT){
+            bound.fluxMethod = std::make_unique<BoundaryTransparent>(
+                _config, 
+                _mesh, 
+                *_fluid, 
+                *_advection);
+        }
+    }
+}
+
+
+void Solver::buildBoundaryConditionsMap() {
+    // build the structure for the objects referencing boundary conditions
+    size_t niFaces, njFaces, nkFaces;
+
+    njFaces = _mesh.getSurfacesI().sizeJ();
+    nkFaces = _mesh.getSurfacesI().sizeK();
+    _boundaryConditionsMapI.resize(2, njFaces, nkFaces);
+
+    nkFaces = _mesh.getSurfacesJ().sizeK();
+    niFaces = _mesh.getSurfacesJ().sizeI();
+    _boundaryConditionsMapJ.resize(niFaces, 2, nkFaces);
+
+    niFaces = _mesh.getSurfacesK().sizeI();
+    njFaces = _mesh.getSurfacesK().sizeJ();
+    _boundaryConditionsMapK.resize(niFaces, njFaces, 2);
+
+    // now associate every boundary face to the flux method pointer stored in _boundaries
+    for (const auto& bound : _boundaries) {
+        size_t i_min = bound.i_min;
+        size_t i_max = bound.i_max;
+        size_t j_min = bound.j_min;
+        size_t j_max = bound.j_max;
+        size_t k_min = bound.k_min;
+        size_t k_max = bound.k_max;
+        
+        // Translate node numbering of bound object to dual node numbering of boundary conditions map 
+        size_t itmp, jtmp, ktmp;
+        if (i_min == i_max) { 
+            if (i_min == 0) {
+                itmp = 0;
+            }
+            else {
+                itmp = 1;
+            }
+            for (size_t j = j_min; j < j_max; ++j) {
+                for (size_t k = k_min; k < k_max; ++k) {
+                    _boundaryConditionsMapI(itmp, j, k) = bound.fluxMethod;
+                }
+            }
+        } 
+        else if (j_min == j_max) { // J boundaries
+            if (j_min == 0) {
+                jtmp = 0;
+            }
+            else {
+                jtmp = 1;
+            }
+            for (size_t i = i_min; i < i_max; ++i) {
+                for (size_t k = k_min; k < k_max; ++k) {
+                    _boundaryConditionsMapJ(i, jtmp, k) = bound.fluxMethod;
+                }
+            }
+        }
+        else if (k_min == k_max) { // K boundaries
+            if (k_min == 0) {
+                ktmp = 0;
+            }
+            else {
+                ktmp = 1;
+            }
+            for (size_t i = i_min; i < i_max; ++i) {
+                for (size_t j = j_min; j < j_max; ++j) {
+                    _boundaryConditionsMapK(i, j, ktmp) = bound.fluxMethod;
+                }
+            }
+        }
+        else {
+            throw std::runtime_error("Invalid boundary definition: " + bound.name);
+        }
+    }
+}
+
+const std::array<int, 3> Solver::getStepMask(FluxDirection direction) const {
+    switch (direction) {
+        case FluxDirection::I: return {1, 0, 0};
+        case FluxDirection::J: return {0, 1, 0};
+        case FluxDirection::K: return {0, 0, 1};
+        default:
+            throw std::runtime_error("Invalid flux direction.");
+    }
+}
+
+
+void Solver::getBoundarySliceIndices(
+    BoundaryIndex boundaryIdx, 
+    size_t &iStart, 
+    size_t &iLast, 
+    size_t &jStart, 
+    size_t &jLast, 
+    size_t &kStart, 
+    size_t &kLast) const{
+
+    iStart=0, 
+    iLast=_nPointsI, 
+    jStart=0, 
+    jLast=_nPointsJ, 
+    kStart=0, 
+    kLast=_nPointsK;
+    
+    switch (boundaryIdx)
+    {
+    case BoundaryIndex::I_START:
+        iLast = 1;
+        break;
+    case BoundaryIndex::I_END:
+        iStart = _nPointsI-1;
+        break;
+    case BoundaryIndex::J_START:
+        jLast = 1;
+        break;
+    case BoundaryIndex::J_END:
+        jStart = _nPointsJ-1;
+        break;
+    case BoundaryIndex::K_START:
+        kLast = 1;
+        break;
+    case BoundaryIndex::K_END:
+        kStart = _nPointsK-1;
+        break;
+    }
+}
+
+const Matrix3D<std::shared_ptr<BoundaryBase>>& Solver::getBoundaryConditionsMap(FluxDirection direction) const {
+    switch (direction)
+    {
+    case FluxDirection::I:
+        return _boundaryConditionsMapI;
+        break;
+    case FluxDirection::J:
+        return _boundaryConditionsMapJ;
+        break;
+    case FluxDirection::K:
+        return _boundaryConditionsMapK;
+        break;
+    default:
+        throw std::runtime_error("Invalid flux direction.");
+    }
+}
+
+void Solver::computeWallDistance() {
+    _wallDistance.resize(_nPointsI, _nPointsJ, _nPointsK);
+    for (size_t i = 0; i < _nPointsI; ++i) {
+        for (size_t j = 0; j < _nPointsJ; ++j) {
+            for (size_t k = 0; k < _nPointsK; ++k) {
+                FloatType minDistance = 1.0E9;
+                FloatType distanceTmp = 1.0E9;
+                for (auto& bound : _boundaries) {
+                    if (bound.type == BoundaryType::NO_SLIP_WALL){ 
+                        distanceTmp = computeMinimumDistanceToBoundary(i, j, k, bound);
+                        if (distanceTmp < minDistance){
+                            minDistance = distanceTmp;
+                        }
+                    }
+                }
+
+                _wallDistance(i,j,k) = minDistance;
+            }
+        }
+    }
+}
+
+FloatType Solver::computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, Boundary boundary) const {
+    
+    BoundaryNodesIndexRange range = fetchBoundaryNodesIndexRange(boundary, _nPointsI, _nPointsJ, _nPointsK);
+    
+    FloatType dx, dy, dz;
+    FloatType minDistance = 1.0E9;
+    for (size_t ib = range.iStart; ib < range.iLast; ++ib) {
+        for (size_t jb = range.jStart; jb < range.jLast; ++jb) {
+            for (size_t kb = range.kStart; kb < range.kLast; ++kb) {
+                dx = _mesh.getVertex(i,j,k).x() - _mesh.getVertex(ib,jb,kb).x();
+                dy = _mesh.getVertex(i,j,k).y() - _mesh.getVertex(ib,jb,kb).y();
+                dz = _mesh.getVertex(i,j,k).z() - _mesh.getVertex(ib,jb,kb).z();
+                FloatType distance = std::sqrt(dx*dx + dy*dy + dz*dz);
+                if (distance < minDistance){
+                    minDistance = distance;
+                }
+            }
+        }
+    }
+    return minDistance;
+}
+
+void Solver::buildBfmInfo(){
     BodyForceModel bfmModel = _config.getBFMModel();
     if (bfmModel == BodyForceModel::HALL) {
         _bfmSource = std::make_unique<SourceBFMHall>(_config, *_fluid, _mesh);
@@ -67,7 +501,7 @@ void SolverEuler::buildBfmInfo(){
     }
 }
 
-void SolverEuler::buildTurbulenceModel(){
+void Solver::buildTurbulenceModel(){
     _isTurbulenceActive = _config.isTurbulenceActive();
     TurbulenceModel turbulenceModel = _config.getTurbulenceModel();
     if (turbulenceModel == TurbulenceModel::SPALART_ALLMARAS) {
@@ -81,7 +515,7 @@ void SolverEuler::buildTurbulenceModel(){
     }
 }
 
-void SolverEuler::initializeSolutionArrays(){
+void Solver::initializeSolutionArrays(){
     _conservativeSolution.resize(_nPointsI, _nPointsJ, _nPointsK);
     _inviscidForce.resize(_nPointsI, _nPointsJ, _nPointsK);
     _viscousForce.resize(_nPointsI, _nPointsJ, _nPointsK);
@@ -133,7 +567,7 @@ void SolverEuler::initializeSolutionArrays(){
 
 }
 
-void SolverEuler::buildOutputStructure(){
+void Solver::buildOutputStructure(){
     _output = std::make_unique<OutputCSV>(
         _config, 
         _mesh, 
@@ -144,7 +578,7 @@ void SolverEuler::buildOutputStructure(){
         _wallDistance);
 }
 
-void SolverEuler::initializeSolutionFromScratch(){
+void Solver::initializeSolutionFromScratch(){
     FloatType initMach = _config.getInitMachNumber();
     FloatType initTemperature = _config.getInitTemperature();
     FloatType initPressure = _config.getInitPressure();
@@ -181,7 +615,7 @@ void SolverEuler::initializeSolutionFromScratch(){
     }
 }
 
-void SolverEuler::initializeSolutionFromRestart(){
+void Solver::initializeSolutionFromRestart(){
     std::string restartFileName = _config.getRestartFilepath();
     
     size_t NI=0, NJ=0, NK=0;    
@@ -234,7 +668,7 @@ void SolverEuler::initializeSolutionFromRestart(){
 }
 
 
-void SolverEuler::standardRestart(
+void Solver::standardRestart(
     Matrix3D<FloatType> &inputDensity, 
     Matrix3D<FloatType> &inputVelX, 
     Matrix3D<FloatType> &inputVelY, 
@@ -268,7 +702,7 @@ void SolverEuler::standardRestart(
 }
 
 
-void SolverEuler::axisymmetricRestart(
+void Solver::axisymmetricRestart(
     Matrix3D<FloatType> &inputDensity, 
     Matrix3D<FloatType> &inputVelX, 
     Matrix3D<FloatType> &inputVelY, 
@@ -303,7 +737,7 @@ void SolverEuler::axisymmetricRestart(
 }
 
 
-void SolverEuler::readRestartFile(
+void Solver::readRestartFile(
     const std::string &restartFileName, 
     size_t &NI, 
     size_t &NJ, 
@@ -416,7 +850,7 @@ void SolverEuler::readRestartFile(
 }
 
 
-void SolverEuler::solve(){
+void Solver::solve(){
     size_t nIterMax = _config.getMaxIterations();
     Matrix3D<FloatType> timestep(_nPointsI, _nPointsJ, _nPointsK);                          
     std::vector<FloatType> timeIntegrationCoeffs = _config.getTimeIntegrationCoeffs();      
@@ -493,7 +927,7 @@ void SolverEuler::solve(){
     }
 }
 
-void SolverEuler::printInfoResiduals(FlowSolution &residuals, size_t it) {
+void Solver::printInfoResiduals(FlowSolution &residuals, size_t it) {
     if (it == 1) {printLogResidualsHeader();}
     auto logRes = computeLogResidualNorm(residuals);
     printLogResiduals(logRes, it);
@@ -501,7 +935,7 @@ void SolverEuler::printInfoResiduals(FlowSolution &residuals, size_t it) {
 }
 
 
-void SolverEuler::printCheckOfMassFlowConservation(size_t it) const {
+void Solver::printCheckOfMassFlowConservation(size_t it) const {
     std::cout << "\nMASS FLOWS CHECK [kg/s]:\n";
     std::cout << "I_START: " << std::setprecision(6) << _massFlows.at(BoundaryIndex::I_START) << std::endl;
     std::cout << "I_END: " << std::setprecision(6) << _massFlows.at(BoundaryIndex::I_END) << std::endl;
@@ -511,7 +945,7 @@ void SolverEuler::printCheckOfMassFlowConservation(size_t it) const {
     std::cout << "K_END: " << std::setprecision(6) << _massFlows.at(BoundaryIndex::K_END) << std::endl << std::endl;
 }
 
-void SolverEuler::printTurboPerformance(size_t it) const {
+void Solver::printTurboPerformance(size_t it) const {
     std::cout << "\nTURBOMACHINERY PERFORMANCE:\n";
     std::cout << "Mass Flow [kg/s]: " 
               << std::setprecision(6) 
@@ -532,7 +966,7 @@ void SolverEuler::printTurboPerformance(size_t it) const {
     std::cout<< std::endl;
 }
 
-void SolverEuler::printLogResiduals(const StateVector &logRes, unsigned long int it) const {
+void Solver::printLogResiduals(const StateVector &logRes, unsigned long int it) const {
     int col_width = 14;
     std::cout << std::fixed << std::setprecision(6);
     std::cout << "|" << std::setw(col_width) << std::setfill(' ') << std::left << it << "|"
@@ -547,7 +981,7 @@ void SolverEuler::printLogResiduals(const StateVector &logRes, unsigned long int
 
 
 
-StateVector SolverEuler::computeLogResidualNorm(const FlowSolution &residuals) const {
+StateVector Solver::computeLogResidualNorm(const FlowSolution &residuals) const {
     StateVector logResidualNorm{};
     constexpr double minDouble = std::numeric_limits<FloatType>::min();
 
@@ -562,7 +996,7 @@ StateVector SolverEuler::computeLogResidualNorm(const FlowSolution &residuals) c
     return logResidualNorm;
 }
 
-void SolverEuler::printLogResidualsHeader() const {
+void Solver::printLogResidualsHeader() const {
     int col_width = 14;
     
     // Print the first separator (top border)
@@ -583,7 +1017,7 @@ void SolverEuler::printLogResidualsHeader() const {
     std::cout << "|" << std::setw(col_width * 7 + 6) << std::setfill('-') << "" << "|" << std::endl;
 }
 
-void SolverEuler::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatType> &timestep){
+void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatType> &timestep){
     FloatType cflMax = _config.getCFL();
     Vector3D iEdge, jEdge, kEdge;
     Vector3D iDir, jDir, kDir;
@@ -643,7 +1077,7 @@ void SolverEuler::computeTimestepArray(const FlowSolution &solution, Matrix3D<Fl
 }
 
 
-void SolverEuler::updateMassFlows(const FlowSolution&solution){
+void Solver::updateMassFlows(const FlowSolution&solution){
     std::array<BoundaryIndex, 6> bcIndices {BoundaryIndex::I_START,
                                               BoundaryIndex::I_END,
                                               BoundaryIndex::J_START,
@@ -662,7 +1096,7 @@ void SolverEuler::updateMassFlows(const FlowSolution&solution){
 }
 
 
-void SolverEuler::updateTurboPerformance(const FlowSolution&solution){
+void Solver::updateTurboPerformance(const FlowSolution&solution){
     
     FloatType massFlow = 0.5 * (_massFlows[BoundaryIndex::I_START] + _massFlows[BoundaryIndex::I_END]);
     if (_config.getTopology() == Topology::AXISYMMETRIC){
@@ -730,7 +1164,7 @@ void SolverEuler::updateTurboPerformance(const FlowSolution&solution){
     
 }
 
-void SolverEuler::computeResiduals(
+void Solver::computeResiduals(
     FlowSolution& solution, 
     const std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad, 
     const size_t iterationCounter, 
@@ -783,7 +1217,7 @@ void SolverEuler::computeResiduals(
 }
 
 
-void SolverEuler::enforcePeriodicityOnResiduals(FlowSolution& residuals, FloatType& angleRad) const {
+void Solver::enforcePeriodicityOnResiduals(FlowSolution& residuals, FloatType& angleRad) const {
     for (size_t i=0; i<_nPointsI; i++){
         for (size_t j=0; j<_nPointsJ; j++){
             StateVector R1 = residuals.at(i, j, 0);
@@ -802,7 +1236,7 @@ void SolverEuler::enforcePeriodicityOnResiduals(FlowSolution& residuals, FloatTy
     }
 }
 
-void SolverEuler::enforceNoSlipWallsOnResiduals(FlowSolution& residuals) const {
+void Solver::enforceNoSlipWallsOnResiduals(FlowSolution& residuals) const {
     Vector3D zeroWallEffect{0.0, 0.0, 0.0}; 
     for (auto& bc : _boundaries){
         if (bc.type == BoundaryType::NO_SLIP_WALL){
@@ -812,7 +1246,7 @@ void SolverEuler::enforceNoSlipWallsOnResiduals(FlowSolution& residuals) const {
 }
 
 
-void SolverEuler::computeAdvectionFluxResiduals(
+void Solver::computeAdvectionFluxResiduals(
     FluxDirection direction, 
     const FlowSolution& solution, 
     size_t itCounter, 
@@ -965,7 +1399,7 @@ void SolverEuler::computeAdvectionFluxResiduals(
 }
 
 
-void SolverEuler::computeViscousFluxResiduals(
+void Solver::computeViscousFluxResiduals(
     FluxDirection direction, 
     const FlowSolution& solution, 
     const std::map<SolutionName, Matrix3D<Vector3D>>& gradients, 
@@ -1067,7 +1501,7 @@ void SolverEuler::computeViscousFluxResiduals(
 }
 
 
-StateVector SolverEuler::computeViscousFlux(
+StateVector Solver::computeViscousFlux(
     const StateVector& conservative, 
     const Vector3D& velXGrad, 
     const Vector3D& velYGrad, 
@@ -1124,7 +1558,7 @@ StateVector SolverEuler::computeViscousFlux(
 
 
 
-void SolverEuler::updateSolution(
+void Solver::updateSolution(
     const FlowSolution &solOld, 
     FlowSolution &solNew, 
     const FlowSolution &residuals, 
@@ -1148,7 +1582,7 @@ void SolverEuler::updateSolution(
 }
 
 
-void SolverEuler::enforcePeriodicityOnSolution(FlowSolution &solNew){
+void Solver::enforcePeriodicityOnSolution(FlowSolution &solNew){
     if (!_mesh.isPeriodicityActive()) return;
 
     const auto angle = _periodicityAngleRad;
@@ -1171,7 +1605,7 @@ void SolverEuler::enforcePeriodicityOnSolution(FlowSolution &solNew){
 
 
 
-void SolverEuler::writeLogResidualsToCsvFile() const {
+void Solver::writeLogResidualsToCsvFile() const {
 
     std::string filename = "residuals.csv";
     std::ofstream file(filename); // open in truncate (default) mode
@@ -1200,7 +1634,7 @@ void SolverEuler::writeLogResidualsToCsvFile() const {
     std::cout << std::endl;
 }
 
-void SolverEuler::writeTurboPerformanceToCsvFile() const {
+void Solver::writeTurboPerformanceToCsvFile() const {
 
     std::string filename = "turbo.csv";
     std::ofstream file(filename); // open in truncate (default) mode
@@ -1229,7 +1663,7 @@ void SolverEuler::writeTurboPerformanceToCsvFile() const {
 }
 
 
-void SolverEuler::writeGreitzerDynamicsToCsvFile() const {
+void Solver::writeGreitzerDynamicsToCsvFile() const {
 
     std::string filename = "greitzer_dynamics.csv";
     std::ofstream file(filename);
@@ -1257,7 +1691,7 @@ void SolverEuler::writeGreitzerDynamicsToCsvFile() const {
 
 
 
-void SolverEuler::writeMonitorPointsToCsvFile() const {
+void Solver::writeMonitorPointsToCsvFile() const {
 
     std::string folder = "Monitor_Points";
     std::filesystem::create_directories(folder); // Ensure the folder exists
@@ -1292,7 +1726,7 @@ void SolverEuler::writeMonitorPointsToCsvFile() const {
 }
 
 
-void SolverEuler::updateRadialProfiles(FlowSolution &solution){
+void Solver::updateRadialProfiles(FlowSolution &solution){
     StateVector conservative, primitive;
     Vector3D velocityCart, velocityCyl;
     
@@ -1348,7 +1782,7 @@ void SolverEuler::updateRadialProfiles(FlowSolution &solution){
 }
 
 
-void SolverEuler::computeSourceResiduals(
+void Solver::computeSourceResiduals(
     FlowSolution& solution, 
     const std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad, 
     const size_t itCounter, 
@@ -1432,7 +1866,7 @@ void SolverEuler::computeSourceResiduals(
     }
 }
 
-void SolverEuler::understandWhatSourcesAreNeeded(
+void Solver::understandWhatSourcesAreNeeded(
     size_t i, size_t j, size_t k, 
     bool &geometricSourceFlag, 
     bool &gongSourceFlag) const {
@@ -1459,7 +1893,7 @@ void SolverEuler::understandWhatSourcesAreNeeded(
 
 }
 
-void SolverEuler::initializeMonitorPoints(){
+void Solver::initializeMonitorPoints(){
 
     size_t seedI = _config.getMonitorPointsCoordsI();
     size_t seedJ = _config.getMonitorPointsCoordsJ();
@@ -1498,7 +1932,7 @@ void SolverEuler::initializeMonitorPoints(){
 
 }
 
-void SolverEuler::updateMonitorPoints(const FlowSolution &solution){
+void Solver::updateMonitorPoints(const FlowSolution &solution){
     for (unsigned int i = 0; i < _numberMonitorPoints; i++){
         size_t idxI = _monitorPointsIdxI[i];
         size_t idxJ = _monitorPointsIdxJ[i];
@@ -1518,7 +1952,7 @@ void SolverEuler::updateMonitorPoints(const FlowSolution &solution){
     }
 }
 
-void SolverEuler::checkConvergence(bool &exitLoop, bool &isSteady) const {
+void Solver::checkConvergence(bool &exitLoop, bool &isSteady) const {
     if (!isSteady) return;
 
     StateVector current = _logResiduals.back();
@@ -1535,7 +1969,7 @@ void SolverEuler::checkConvergence(bool &exitLoop, bool &isSteady) const {
 }
 
 
-void SolverEuler::computeGradientOfField(const Matrix3D<FloatType> &var, Matrix3D<Vector3D> &grad) const {
+void Solver::computeGradientOfField(const Matrix3D<FloatType> &var, Matrix3D<Vector3D> &grad) const {
     computeGradientGreenGauss(  
         _mesh.getSurfacesI(), 
         _mesh.getSurfacesJ(), 
@@ -1550,7 +1984,7 @@ void SolverEuler::computeGradientOfField(const Matrix3D<FloatType> &var, Matrix3
 }
 
 
-void SolverEuler::computeSolutionGradient(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad){
+void Solver::computeSolutionGradient(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad){
     if (!_config.isViscosityActive()){
         return;
     }
@@ -1571,7 +2005,7 @@ void SolverEuler::computeSolutionGradient(FlowSolution &sol, std::map<SolutionNa
 }
 
 
-StateVector SolverEuler::computeGongSource(
+StateVector Solver::computeGongSource(
     const FloatType& radius, 
     const FloatType& theta, 
     const FloatType& omega, 
@@ -1645,14 +2079,14 @@ StateVector SolverEuler::computeGongSource(
 
 
 
-void SolverEuler::writeSolution(size_t iterationCounter, bool alsoGradients){
+void Solver::writeSolution(size_t iterationCounter, bool alsoGradients){
     _output->writeSolution(iterationCounter, alsoGradients);
 }
 
 
 
 
-void SolverEuler::setMomentumSolutionOnViscousWalls(
+void Solver::setMomentumSolutionOnViscousWalls(
     FlowSolution &sol, 
     const Boundary &boundary,
     const Vector3D& wallVelocity) const{
@@ -1694,7 +2128,7 @@ void SolverEuler::setMomentumSolutionOnViscousWalls(
 }
 
 
-void SolverEuler::preprocessSolution(FlowSolution &sol, bool updateRadialProf) {
+void Solver::preprocessSolution(FlowSolution &sol, bool updateRadialProf) {
     
     if (updateRadialProf) {
         updateRadialProfiles(sol);
