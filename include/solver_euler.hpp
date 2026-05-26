@@ -43,6 +43,12 @@ private:
 
     void initializeMonitorPoints();
 
+    void buildBfmInfo();
+
+    void buildTurbulenceModel();
+
+    void buildOutputStructure();
+
 
     /** @brief compute the global residual, defined as V*dU/dt + R = 0 -> R = fluxes - source terms */
     void computeResiduals(

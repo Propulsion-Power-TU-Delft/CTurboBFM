@@ -11,35 +11,13 @@
 SolverEuler::SolverEuler(Config& config, Mesh& mesh)
     : SolverBase(config, mesh)  
 {
-    _isGreitzerModelingActive = _config.enableGreitzerModeling();
-    if (_isGreitzerModelingActive) {
-        FloatType throttleCoeff;
-        bool hasThrottleCoeff = false;
-        for (auto& bound : _boundaries) {
-            if (bound.type == BoundaryType::THROTTLE){ 
-                hasThrottleCoeff = true;
-                throttleCoeff = bound.values[0];
-            }
-        }
-
-        if (!hasThrottleCoeff) {
-            throw std::runtime_error("Greitzer modeling enabled but no throttle boundary condition found!");
-        }
-
-        _greitzerModel = std::make_unique<GreitzerModel>(_config, *_fluid, throttleCoeff);
-    }
-    
+    buildBfmInfo();
     initializeSolutionArrays();
-    
-    _output = std::make_unique<OutputCSV>(
-        _config, 
-        _mesh, 
-        _conservativeSolution, 
-        *_fluid, _inviscidForce, 
-        _viscousForce, 
-        _deviationAngle,
-        _wallDistance);
+    buildTurbulenceModel();
+    buildOutputStructure();
+}
 
+void SolverEuler::buildBfmInfo(){
     BodyForceModel bfmModel = _config.getBFMModel();
     if (bfmModel == BodyForceModel::HALL) {
         _bfmSource = std::make_unique<SourceBFMHall>(_config, *_fluid, _mesh);
@@ -70,6 +48,26 @@ SolverEuler::SolverEuler(Config& config, Mesh& mesh)
     
     _isGongFormulationActive = _config.isGongFormulationActive();
 
+    _isGreitzerModelingActive = _config.enableGreitzerModeling();
+    if (_isGreitzerModelingActive) {
+        FloatType throttleCoeff;
+        bool hasThrottleCoeff = false;
+        for (auto& bound : _boundaries) {
+            if (bound.type == BoundaryType::THROTTLE){ 
+                hasThrottleCoeff = true;
+                throttleCoeff = bound.values[0];
+            }
+        }
+
+        if (!hasThrottleCoeff) {
+            throw std::runtime_error("Greitzer modeling enabled but no throttle boundary condition found!");
+        }
+
+        _greitzerModel = std::make_unique<GreitzerModel>(_config, *_fluid, throttleCoeff);
+    }
+}
+
+void SolverEuler::buildTurbulenceModel(){
     _isTurbulenceActive = _config.isTurbulenceActive();
     TurbulenceModel turbulenceModel = _config.getTurbulenceModel();
     if (turbulenceModel == TurbulenceModel::SPALART_ALLMARAS) {
@@ -81,9 +79,7 @@ SolverEuler::SolverEuler(Config& config, Mesh& mesh)
     else {
         throw std::runtime_error("Unsupported turbulence model selected.");
     }
-
 }
-
 
 void SolverEuler::initializeSolutionArrays(){
     _conservativeSolution.resize(_nPointsI, _nPointsJ, _nPointsK);
@@ -137,6 +133,16 @@ void SolverEuler::initializeSolutionArrays(){
 
 }
 
+void SolverEuler::buildOutputStructure(){
+    _output = std::make_unique<OutputCSV>(
+        _config, 
+        _mesh, 
+        _conservativeSolution, 
+        *_fluid, _inviscidForce, 
+        _viscousForce, 
+        _deviationAngle,
+        _wallDistance);
+}
 
 void SolverEuler::initializeSolutionFromScratch(){
     FloatType initMach = _config.getInitMachNumber();
