@@ -1,7 +1,7 @@
 #include "solver_euler.hpp"
 #include "math_utils.hpp"
 #include "types.hpp"
-#include <iostream> // Optional, for logging/debugging
+#include <iostream>
 #include <iomanip>
 #include <algorithm>
 #include <vector>
