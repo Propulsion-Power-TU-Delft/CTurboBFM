@@ -48,6 +48,13 @@ SolverBase::SolverBase(Config& config, Mesh& mesh)
 }
 
 void SolverBase::readBoundaryConditions(){
+    readBoundaryFile();
+    buildBoundaryDataStructures();
+    buildBoundaryFluxes();
+    buildBoundaryConditionsMap();
+}
+
+void SolverBase::readBoundaryFile() {
     std::string filename = _config.getBoundaryConditionsFilePath();
     std::ifstream file(filename);
 
@@ -107,7 +114,10 @@ void SolverBase::readBoundaryConditions(){
         _boundaries.push_back(patch);
     }
 
-    // for specific bcs allocate the required information
+    std::cout << "Boundary conditions read from file: " << filename << std::endl;
+}
+
+void SolverBase::buildBoundaryDataStructures() {
     for (auto& bound : _boundaries) {
         if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM || bound.type == BoundaryType::THROTTLE){
             RadialEquilibriumProfile profile;
@@ -159,28 +169,9 @@ void SolverBase::readBoundaryConditions(){
 
         }
     }
+}
 
-
-
-    // build the structure for the objects referencing boundary conditions
-    size_t niFaces, njFaces, nkFaces;
-
-    njFaces = _mesh.getSurfacesI().sizeJ();
-    nkFaces = _mesh.getSurfacesI().sizeK();
-    _boundaryConditionsMapI.resize(2, njFaces, nkFaces);
-
-    nkFaces = _mesh.getSurfacesJ().sizeK();
-    niFaces = _mesh.getSurfacesJ().sizeI();
-    _boundaryConditionsMapJ.resize(niFaces, 2, nkFaces);
-
-    niFaces = _mesh.getSurfacesK().sizeI();
-    njFaces = _mesh.getSurfacesK().sizeJ();
-    _boundaryConditionsMapK.resize(niFaces, njFaces, 2);
-
-    std::cout << "Boundary conditions read from file: " << filename << std::endl;
-
-
-    // instantiate boundary objects
+void SolverBase::buildBoundaryFluxes() {
     for (auto& bound : _boundaries) {
         if (bound.type == BoundaryType::INVISCID_WALL || bound.type == BoundaryType::NO_SLIP_WALL){
             bound.fluxMethod = std::make_unique<BoundaryInviscidWall>(
@@ -257,6 +248,24 @@ void SolverBase::readBoundaryConditions(){
                 *_advection);
         }
     }
+}
+
+
+void SolverBase::buildBoundaryConditionsMap() {
+    // build the structure for the objects referencing boundary conditions
+    size_t niFaces, njFaces, nkFaces;
+
+    njFaces = _mesh.getSurfacesI().sizeJ();
+    nkFaces = _mesh.getSurfacesI().sizeK();
+    _boundaryConditionsMapI.resize(2, njFaces, nkFaces);
+
+    nkFaces = _mesh.getSurfacesJ().sizeK();
+    niFaces = _mesh.getSurfacesJ().sizeI();
+    _boundaryConditionsMapJ.resize(niFaces, 2, nkFaces);
+
+    niFaces = _mesh.getSurfacesK().sizeI();
+    njFaces = _mesh.getSurfacesK().sizeJ();
+    _boundaryConditionsMapK.resize(niFaces, njFaces, 2);
 
     // now associate every boundary face to the flux method pointer stored in _boundaries
     for (const auto& bound : _boundaries) {
@@ -313,7 +322,6 @@ void SolverBase::readBoundaryConditions(){
         }
     }
 }
-
 
 const std::array<int, 3> SolverBase::getStepMask(FluxDirection direction) const {
     switch (direction) {

@@ -75,6 +75,16 @@ public:
 
 
 protected:
+
+    void readBoundaryFile();
+
+    void buildBoundaryDataStructures();
+    
+    void buildBoundaryFluxes();
+    
+    void buildBoundaryConditionsMap();
+
+
     const Config& _config;
     Mesh& _mesh;
     size_t _nDimensions {0}, _nPointsI {0}, _nPointsJ {0}, _nPointsK {0};
