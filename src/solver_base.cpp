@@ -6,6 +6,14 @@
 SolverBase::SolverBase(Config& config, Mesh& mesh)
     : _config(config), _mesh(mesh)
 {
+    setupSolverInfo();
+    buildFluidModel();
+    buildAdvectionModel();
+    readBoundaryConditions();
+    computeWallDistance();
+}
+
+void SolverBase::setupSolverInfo() {
     _nDimensions = _mesh.getNumberDimensions();
     _nPointsI = _mesh.getNumberPointsI();
     _nPointsJ = _mesh.getNumberPointsJ();
@@ -17,7 +25,9 @@ SolverBase::SolverBase(Config& config, Mesh& mesh)
     _topology = _config.getTopology();
 
     _residualsDropConvergence = _config.getResidualsDropConvergence();  
+}
 
+void SolverBase::buildFluidModel() {
     _fluidModel = _config.getFluidModel();
     if (_fluidModel == FluidModel::IDEAL){
         _fluid = std::make_unique<FluidIdeal>(_config.getFluidGamma(), _config.getFluidGasConstant());
@@ -28,7 +38,9 @@ SolverBase::SolverBase(Config& config, Mesh& mesh)
     else{
         throw std::runtime_error("Unsupported fluid model selected.");
     }
+}
 
+void SolverBase::buildAdvectionModel() {
     AdvectionScheme advectionScheme = _config.getAdvectionScheme();
     switch (advectionScheme)
     {
@@ -41,10 +53,6 @@ SolverBase::SolverBase(Config& config, Mesh& mesh)
     default:
         throw std::runtime_error("Unsupported convection scheme selected.");
     }
-
-    readBoundaryConditions();
-    computeWallDistance();
-    
 }
 
 void SolverBase::readBoundaryConditions(){

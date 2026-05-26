@@ -76,6 +76,12 @@ public:
 
 protected:
 
+    void setupSolverInfo();
+
+    void buildFluidModel();
+
+    void buildAdvectionModel();
+
     void readBoundaryFile();
 
     void buildBoundaryDataStructures();
