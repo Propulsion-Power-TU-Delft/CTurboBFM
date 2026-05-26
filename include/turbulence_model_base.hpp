@@ -1,23 +1,22 @@
 #pragma once
 
 #include "types.hpp"
-#include "mesh.hpp"
 #include "config.hpp"
+#include "mesh.hpp"
 #include "fluid_base.hpp"
 #include "fluid_ideal.hpp"
-#include "math_utils.hpp"
-#include "input_table.hpp"
-#include "solver.hpp"
-
 
 class TurbulenceModelBase {
 public:
-    explicit TurbulenceModelBase() {};
+    explicit TurbulenceModelBase(const Config &config, const FluidBase &fluid, const Mesh &mesh);
+    
     virtual ~TurbulenceModelBase() = default;
 
-    // virtual void solve() = 0;
-    // virtual void initialize() = 0;
-
 protected:
-    // Solver* _solver;
+    const Config& _config;
+    const FluidBase& _fluid;
+    const Mesh& _mesh;
+    size_t _ni, _nj, _nk;
+
+    Matrix3D<FloatType> _eddyViscosity;
 };

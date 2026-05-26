@@ -130,7 +130,7 @@ public:
     FloatType getFluidGamma() const {return parseFloat("FLUID_GAMMA");} 
 
     FloatType getFluidGasConstant() const {return parseFloat("FLUID_R_CONSTANT");} 
-    
+
     FloatType getFluidKinematicViscosity() const {return parseFloat("FLUID_KINEMATIC_VISCOSITY");} 
 
     FloatType getFluidPrandtlNumber() const {return parseFloat("FLUID_PRANDTL_NUMBER");}
@@ -279,4 +279,10 @@ public:
     FloatType getRotationalSpeedScalingFactorFinal() const {
         return parseFloat("ROTATIONAL_SPEED_SCALING_FACTOR_FINAL");
     }
+
+    FloatType getSutherlandMuRef() const {return parseFloat("FLUID_SUTHERLAND_MU_REF");}
+
+    FloatType getSutherlandTemperatureRef() const {return parseFloat("FLUID_SUTHERLAND_T_REF");}
+
+    FloatType getSutherlandSconstant() const {return parseFloat("FLUID_SUTHERLAND_S");}
 };

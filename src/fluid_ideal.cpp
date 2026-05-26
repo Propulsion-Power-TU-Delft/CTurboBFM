@@ -148,3 +148,22 @@ Matrix3D<FloatType> FluidIdeal::computeTemperature_conservative(
     Matrix3D<FloatType> temperature = (et - (ux * ux + uy * uy + uz * uz) * 0.5) * ((_gamma-1.0)/_R);
     return temperature;
 }
+
+void FluidIdeal::setTransportProperties(const Config &config){
+    _sutherlandMuRef = config.getSutherlandMuRef();
+    _sutherlandTemperatureRef = config.getSutherlandTemperatureRef();
+    _sutherlandSconstant = config.getSutherlandSconstant();
+
+    _cp = config.getFluidHeatCapacity(); 
+    _Pr = config.getFluidPrandtlNumber();      
+}
+
+FloatType FluidIdeal::computeMolecularDynamicViscosity(FloatType temperature) {
+    return _sutherlandMuRef * std::pow(temperature/_sutherlandTemperatureRef, 1.5) * (
+        (_sutherlandTemperatureRef + _sutherlandSconstant) / (temperature + _sutherlandSconstant)
+    );   
+}
+
+FloatType FluidIdeal::computeThermalConductivity(FloatType dynamicViscosity) {
+    return _cp * dynamicViscosity / _Pr; 
+}

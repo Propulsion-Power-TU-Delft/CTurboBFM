@@ -1,5 +1,6 @@
 #pragma once
 #include "types.hpp"
+#include "config.hpp"
 
 // Class for ideal gases
 class FluidBase {
@@ -74,5 +75,11 @@ public:
         Matrix3D<FloatType>& uy, 
         Matrix3D<FloatType>& uz, 
         Matrix3D<FloatType>& et) const = 0;
+    
+    virtual void setTransportProperties(const Config &config) = 0;
+
+    virtual FloatType computeMolecularDynamicViscosity(FloatType temperature) = 0;
+
+    virtual FloatType computeThermalConductivity(FloatType dynamicViscosity) = 0;
     
 };

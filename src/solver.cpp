@@ -47,6 +47,10 @@ void Solver::buildFluidModel() {
     else{
         throw std::runtime_error("Unsupported fluid model selected.");
     }
+
+    if (_config.isViscosityActive()){
+        _fluid->setTransportProperties(_config);
+    }
 }
 
 void Solver::buildAdvectionModel() {
@@ -505,10 +509,10 @@ void Solver::buildTurbulenceModel(){
     _isTurbulenceActive = _config.isTurbulenceActive();
     TurbulenceModel turbulenceModel = _config.getTurbulenceModel();
     if (turbulenceModel == TurbulenceModel::SPALART_ALLMARAS) {
-        _turbulenceModel = std::make_unique<TurbulenceModelSA>();
+        _turbulenceModel = std::make_unique<TurbulenceModelSA>(_config, *_fluid, _mesh);
     }
     else if (turbulenceModel == TurbulenceModel::NONE) {
-        _turbulenceModel = std::make_unique<TurbulenceModelBase>();
+        _turbulenceModel = std::make_unique<TurbulenceModelBase>(_config, *_fluid, _mesh);
     }
     else {
         throw std::runtime_error("Unsupported turbulence model selected.");
@@ -1510,25 +1514,27 @@ StateVector Solver::computeViscousFlux(
     const Vector3D& surface) const{
     
     StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
+
     Vector3D vel = Vector3D(primitive[1], primitive[2], primitive[3]);
     
+    FloatType temperature = _fluid->computeTemperature_rho_u_et(
+        primitive[0], 
+        vel, 
+        primitive[4]);
+    
     // fluid quantities
-    FloatType nu = _config.getFluidKinematicViscosity();
-    FloatType mu = nu * primitive[0]; 
-    FloatType lmbda = -2.0 / 3.0 * mu;         
-    FloatType cp = _config.getFluidHeatCapacity(); 
-    FloatType Pr = _config.getFluidPrandtlNumber();             
-    FloatType kappa = cp * mu / Pr;   
+    FloatType mu = _fluid->computeMolecularDynamicViscosity(temperature);
+    FloatType secondaryViscosity = -2.0 / 3.0 * mu;         
+    FloatType kappa = _fluid->computeThermalConductivity(mu);
     
     // viscous stresses
     FloatType tauxx, tauyy, tauzz, tauxy, tauxz, tauyz;
-
     FloatType divVel = velXGrad.x() + velYGrad.y() + velZGrad.z();
     
     // viscous stresses
-    tauxx = lmbda * divVel + 2.0 * mu * velXGrad.x();
-    tauyy = lmbda * divVel + 2.0 * mu * velYGrad.y();
-    tauzz = lmbda * divVel + 2.0 * mu * velZGrad.z();
+    tauxx = secondaryViscosity * divVel + 2.0 * mu * velXGrad.x();
+    tauyy = secondaryViscosity * divVel + 2.0 * mu * velYGrad.y();
+    tauzz = secondaryViscosity * divVel + 2.0 * mu * velZGrad.z();
 
     tauxy = mu * (velXGrad.y() + velYGrad.x());
     tauxz = mu * (velXGrad.z() + velZGrad.x());
