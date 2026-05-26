@@ -568,7 +568,7 @@ void Solver::initializeSolutionArrays(){
 }
 
 void Solver::buildOutputStructure(){
-    _output = std::make_unique<OutputCSV>(
+    _output = std::make_unique<Output>(
         _config, 
         _mesh, 
         _conservativeSolution, 

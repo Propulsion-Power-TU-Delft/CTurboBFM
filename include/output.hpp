@@ -2,15 +2,16 @@
 #include "config.hpp"
 #include "mesh.hpp"
 #include "fluid_base.hpp"
-#include "output_base.hpp"
+#include "output.hpp"
+#include "math_utils.hpp"
 #include <fstream>
 #include <filesystem>
 
 
-class OutputBase {
+class Output {
     
 public:
-    OutputBase(
+    Output(
         const Config &config, 
         const Mesh &mesh, 
         const FlowSolution &solution, 
@@ -20,9 +21,9 @@ public:
         const Matrix3D<FloatType> &deviationAngle,
         const Matrix3D<FloatType> &wallDistance);
     
-    virtual ~OutputBase() = default;
+    ~Output() = default;
 
-    virtual void writeSolution(size_t iterationCounter, bool alsoGradients=false) = 0;
+    void writeSolution(size_t iterationCounter, bool alsoGradients=false);
 
     void getOutputFieldsMap(std::map<std::string, Matrix3D<FloatType>>& scalarsMap, bool alsoGradients=false) const;
 

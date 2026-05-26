@@ -1,7 +1,6 @@
 #pragma once
 #include "types.hpp"
-#include "output_base.hpp"
-#include "output_csv.hpp"
+#include "output.hpp"
 #include "source_bfm_base.hpp"
 #include "source_bfm_hall.hpp"
 #include "source_bfm_thollet.hpp"
@@ -306,7 +305,7 @@ private:
 
     FlowSolution _conservativeSolution; 
     std::map<SolutionName, Matrix3D<Vector3D>> _solutionGrad;
-    std::unique_ptr<OutputBase> _output;
+    std::unique_ptr<Output> _output;
     
     bool _isBfmActive{false}, _isTurbulenceActive{false};
     bool _isGongFormulationActive{false};
