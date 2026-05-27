@@ -46,12 +46,12 @@ GRAD_OBJECTS   := $(COMMON_OBJECTS) $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o,
 
 # Output binaries
 MAIN_TARGET := $(BIN_DIR)/turbobfm
-GRAD_TARGET := $(BIN_DIR)/turbobfm_grad
+
 
 # ==========================================================
 # Default rules
 # ==========================================================
-all: $(MAIN_TARGET) $(GRAD_TARGET)
+all: $(MAIN_TARGET)
 
 debug: CXXFLAGS += $(DEBUG_FLAGS)
 debug: all
