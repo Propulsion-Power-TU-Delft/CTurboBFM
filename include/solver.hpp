@@ -45,8 +45,6 @@ public:
 
     void solve();
 
-    void writeSolution(size_t iterationCounter, bool alsoGradients=false);
-
     inline const Matrix3D<FloatType> getWallDistance() const {
         return _wallDistance;
     }

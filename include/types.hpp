@@ -1178,7 +1178,7 @@ enum class ReferenceFrame {
     CYLINDRICAL
 };
 
-enum class OutputFields {
+enum class OutputFieldsType {
     PRIMARY,
     SECONDARY,
     TURBO_BFM

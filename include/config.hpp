@@ -256,7 +256,7 @@ public:
 
     FloatType getFixedTimeStep() const {return parseFloat("FIXED_TIME_STEP");} 
 
-    OutputFields getOutputFields() const ;
+    OutputFieldsType getOutputFieldsType() const ;
 
     bool isViscosityActive() const {return parseBool("VISCOSITY_ACTIVE", false);}
 

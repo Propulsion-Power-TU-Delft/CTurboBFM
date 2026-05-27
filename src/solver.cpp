@@ -604,10 +604,10 @@ void Solver::buildOutputStructure(){
         _config, 
         _mesh, 
         _conservativeSolution, 
-        *_fluid, _inviscidForce, 
+        *_fluid, 
+        _inviscidForce, 
         _viscousForce, 
-        _deviationAngle,
-        _wallDistance);
+        _deviationAngle);
 }
 
 void Solver::initializeSolutionFromScratch(){
@@ -945,7 +945,7 @@ void Solver::solve(){
 
         // write volume output file
         if (it%solutionOutputFreq == 0 || it == nIterMax) {
-            _output->writeSolution(it, false);
+            _output->writeSolution(it);
         } 
 
         // write additional text files
@@ -2110,15 +2110,6 @@ StateVector Solver::computeGongSource(
 
     return source*volume;
 }
-
-
-
-void Solver::writeSolution(size_t iterationCounter, bool alsoGradients){
-    _output->writeSolution(iterationCounter, alsoGradients);
-}
-
-
-
 
 void Solver::setMomentumSolutionOnViscousWalls(
     FlowSolution &sol, 
