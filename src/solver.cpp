@@ -73,6 +73,7 @@ void Solver::readBoundaryConditions(){
     buildBoundaryDataStructures();
     buildBoundaryFluxes();
     buildBoundaryConditionsMap();
+    checkBoundaryConditionsMap();
 }
 
 void Solver::readBoundaryFile() {
@@ -340,6 +341,33 @@ void Solver::buildBoundaryConditionsMap() {
         }
         else {
             throw std::runtime_error("Invalid boundary definition: " + bound.name);
+        }
+    }
+}
+
+void Solver::checkBoundaryConditionsMap() const {
+
+    std::vector<Matrix3D<std::shared_ptr<BoundaryBase>>> boundaryConditionsMaps;
+    boundaryConditionsMaps.push_back(_boundaryConditionsMapI);
+    
+    if (_config.getTopology() != Topology::ONE_DIMENSIONAL) {
+        boundaryConditionsMaps.push_back(_boundaryConditionsMapJ);
+    }
+
+    if (_config.getTopology() == Topology::THREE_DIMENSIONAL) {
+        boundaryConditionsMaps.push_back(_boundaryConditionsMapK);
+    }
+    
+    // check that at least a boundary flux method is associated to every boundary node
+    for (const auto& bcMap : boundaryConditionsMaps) {
+        for (size_t i = 0; i < bcMap.sizeI(); ++i) {
+            for (size_t j = 0; j < bcMap.sizeJ(); ++j) {
+                for (size_t k = 0; k < bcMap.sizeK(); ++k) {
+                    if (bcMap(i, j, k) == nullptr) {
+                        throw std::runtime_error("Missing boundary condition for i=" + std::to_string(i) + ", j=" + std::to_string(j) + ", k=" + std::to_string(k));
+                    }
+                }
+            }
         }
     }
 }

@@ -111,7 +111,7 @@ private:
         
     const Matrix3D<std::shared_ptr<BoundaryBase>>& getBoundaryConditionsMap(FluxDirection direction) const;
     
-    
+    void checkBoundaryConditionsMap() const;
 
     void computeWallDistance() ;
 
