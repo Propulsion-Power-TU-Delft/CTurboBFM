@@ -43,6 +43,7 @@ def writeVTK(data, filename):
         )
     }
 
+    # BFM output vector fields
     try:
         pointsData["Grid Velocity"] = (
             np.ascontiguousarray(data['Grid Velocity X'], dtype=np.float64),
@@ -68,8 +69,16 @@ def writeVTK(data, filename):
             np.ascontiguousarray(data['Viscous Body Force Y'], dtype=np.float64),
             np.ascontiguousarray(data['Viscous Body Force Z'], dtype=np.float64)
         )
-        
-        
+    except:
+        pass
+    
+    # Turbulence/Viscous output vector fields
+    try:
+        pointsData["Wall Shear Stress"] = (
+            np.ascontiguousarray(data['Wall Shear Stress X'], dtype=np.float64),
+            np.ascontiguousarray(data['Wall Shear Stress Y'], dtype=np.float64),
+            np.ascontiguousarray(data['Wall Shear Stress Z'], dtype=np.float64)
+        )
     except:
         pass
         
@@ -79,7 +88,8 @@ def writeVTK(data, filename):
                        'Grid Velocity X', 'Grid Velocity Y', 'Grid Velocity Z',
                        'Relative Velocity X', 'Relative Velocity Y', 'Relative Velocity Z',
                        'Inviscid Body Force X', 'Inviscid Body Force Y', 'Inviscid Body Force Z',
-                       'Viscous Body Force X', 'Viscous Body Force Y', 'Viscous Body Force Z']:
+                       'Viscous Body Force X', 'Viscous Body Force Y', 'Viscous Body Force Z',
+                       'Wall Shear Stress X', 'Wall Shear Stress Y', 'Wall Shear Stress Z']:
             pointsData[key] = np.ascontiguousarray(data[key], dtype=np.float64)
 
     gridToVTK(

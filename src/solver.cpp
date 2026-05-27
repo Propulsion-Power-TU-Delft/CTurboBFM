@@ -604,7 +604,9 @@ void Solver::buildOutputStructure(){
         _config, 
         _mesh, 
         _conservativeSolution, 
+        _solutionGrad,
         *_fluid, 
+        _boundaries,
         _inviscidForce, 
         _viscousForce, 
         _deviationAngle);
