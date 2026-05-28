@@ -51,6 +51,9 @@ Output::Output(
     _solutionGrad(solutionGrad),
     _fluid(fluid), 
     _boundaries(boundaries),
+    _surfacesI(mesh.getSurfacesI()),
+    _surfacesJ(mesh.getSurfacesJ()),
+    _surfacesK(mesh.getSurfacesK()),
     _inviscidForce(inviscidForce), 
     _viscousForce(viscousForce), 
     _deviationAngle(deviationAngle) {    
@@ -190,11 +193,9 @@ void Output::updateSecondaryFields() {
 
                     _outputFields[BLOCKAGE](i, j, k) = _mesh.getInputFields(InputField::BLOCKAGE)(i, j, k);
                     omega = _mesh.getInputFields(InputField::RPM)(i, j, k) * 2.0 * M_PI / 60.0;
-                    FloatType scalingFactor = _config.getRotationalSpeedScalingFactor();
-                    omega *= scalingFactor;
-                    radius = std::sqrt(_mesh.getVertex(i, j, k).z() * _mesh.getVertex(i, j, k).z() +
-                                                _mesh.getVertex(i, j, k).y() * _mesh.getVertex(i, j, k).y());
-                    theta = std::atan2(_mesh.getVertex(i, j, k).z(), _mesh.getVertex(i, j, k).y());
+                    omega *= _config.getRotationalSpeedScalingFactor();
+                    radius = _mesh.getRadius(i, j, k);
+                    theta = _mesh.getTheta(i, j, k);
                     gridVelCyl = {0.0, 0.0, omega * radius};
                     gridVelCart = computeCartesianComponentsFromCylindrical(gridVelCyl, theta);
 
@@ -248,13 +249,13 @@ void Output::updateTurbulenceFields() {
                     for (size_t k = range.kStart; k < range.kLast; ++k) {
 
                         // the node is already on the boundary, no need for interpolation
-                        Vector3D tau_wall = computeWallShearStress(bound, i, j, k);
-                        _outputFields[WALL_SHEAR_STRESS_X](i, j, k) = tau_wall.x();
-                        _outputFields[WALL_SHEAR_STRESS_Y](i, j, k) = tau_wall.y();
-                        _outputFields[WALL_SHEAR_STRESS_Z](i, j, k) = tau_wall.z();
+                        Vector3D tauWall = computeWallShearStress(bound, i, j, k);
+                        _outputFields[WALL_SHEAR_STRESS_X](i, j, k) = tauWall.x();
+                        _outputFields[WALL_SHEAR_STRESS_Y](i, j, k) = tauWall.y();
+                        _outputFields[WALL_SHEAR_STRESS_Z](i, j, k) = tauWall.z();
 
                         _outputFields[Y_PLUS](i, j, k) = std::sqrt(
-                            tau_wall.magnitude() / _outputFields[DENSITY](i, j, k)
+                            tauWall.magnitude() / _outputFields[DENSITY](i, j, k)
                         );
                     }
                 }
@@ -265,60 +266,57 @@ void Output::updateTurbulenceFields() {
 
 Vector3D Output::computeWallShearStress(Boundary boundary, size_t i, size_t j, size_t k) {
     
-    // velocity gradient on no slip boundaries
+    // velocity gradient
     Vector3D gradU, gradV, gradW;
     gradU = _solutionGrad.at(SolutionName::VELOCITY_X)(i, j, k);
     gradV = _solutionGrad.at(SolutionName::VELOCITY_Y)(i, j, k);
     gradW = _solutionGrad.at(SolutionName::VELOCITY_Z)(i, j, k);
 
-    // now need surface normal
-    FluxDirection direction;
-    if (boundary.i_min == boundary.i_max) {
-        direction = FluxDirection::I;
-    }
-    else if (boundary.j_min == boundary.j_max) {
-        direction = FluxDirection::J;
-    }
-    else if (boundary.k_min == boundary.k_max) {
-        direction = FluxDirection::K;
-    }
-    else {
-        throw std::runtime_error("Invalid flux direction.");
-    }
-    const Matrix3D<Vector3D>& surfaces = _mesh.getSurfaces(direction);
-    
-    Vector3D normal;
-    if (direction == FluxDirection::I) {
-        if (boundary.i_min == 0){
-            normal = surfaces(0, j, k);
-        }
-        else{
-            normal = -surfaces(boundary.i_max, j, k);
-        }
-    }
-    else if (direction == FluxDirection::J) {
-        if (boundary.j_min == 0){
-            normal = surfaces(i, 0, k);
-        }
-        else{
-            normal = -surfaces(i, boundary.j_max, k);
-        }
-    }
-    else if (direction == FluxDirection::K) {
-        if (boundary.k_min == 0){
-            normal = surfaces(i, j, 0);
-        }
-        else{
-            normal = -surfaces(i, j, boundary.k_max);
-        }
-    }
+    // viscous stress with Stokes hypothesis
+    FloatType mu = _outputFields[MOLECULAR_VISCOSITY](i, j, k);
+    FloatType muEddy = _outputFields[EDDY_VISCOSITY](i, j, k);
+    FloatType muEffective = mu + muEddy;
+    FloatType lambda = -2.0 * mu / 3.0;
+    ViscousStressTensor tau = computeViscousStressTensor(
+        muEffective,
+        lambda,
+        gradU,
+        gradV,
+        gradW
+    );
 
-    Vector3D tau_wall;
-    tau_wall.x() = 2 * gradU.x() * normal.x() + (gradU.y()+gradV.x()) * normal.y() + (gradU.z()+gradW.x()) * normal.z();
-    tau_wall.y() = (gradU.y()+gradV.x()) * normal.x() + 2 * gradV.y() * normal.y() + (gradV.z()+gradW.y()) * normal.z();
-    tau_wall.z() = (gradU.z()+gradW.x()) * normal.x() + (gradV.z()+gradW.y()) * normal.y() + 2 * gradW.z() * normal.z();
-    
-    return tau_wall * (_outputFields[MOLECULAR_VISCOSITY](i, j, k) + _outputFields[EDDY_VISCOSITY](i, j, k));
+    // Extract the surface vector, oriented towards the fluid
+    Vector3D surface;
+    switch (boundary.orientation) {
+        case BoundaryOrientation::I_START : {
+            surface = _surfacesI(0, j, k);
+            break;
+        }
+        case BoundaryOrientation::I_END : {
+            surface = -_surfacesI(boundary.i_max, j, k);
+            break;
+        }
+        case BoundaryOrientation::J_START : {
+            surface = _surfacesJ(i, 0, k);
+            break;
+        }
+        case BoundaryOrientation::J_END : {
+            surface = -_surfacesJ(i, boundary.j_max, k);
+            break;
+        }
+        case BoundaryOrientation::K_START : {
+            surface = _surfacesK(i, j, 0);
+            break;
+        }
+        case BoundaryOrientation::K_END : {
+            surface = -_surfacesK(i, j, boundary.k_max);
+            break;
+        }
+    }
+    surface = surface.normalized();
+    Vector3D tauWall = computeViscousStressVector(tau, surface);
+
+    return tauWall;
 }
 
 

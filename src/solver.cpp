@@ -132,6 +132,7 @@ void Solver::readBoundaryFile() {
 
         patch.type   = _config.getBoundaryType(patch.name);
         patch.values = _config.getBoundaryValues(patch.name);
+        patch.computeOrientation();
 
         _boundaries.push_back(patch);
     }

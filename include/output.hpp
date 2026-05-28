@@ -56,6 +56,9 @@ protected:
     const std::map<SolutionName, Matrix3D<Vector3D>>& _solutionGrad;
     const FluidBase& _fluid;
     const std::vector<Boundary>& _boundaries;
+    const Matrix3D<Vector3D>& _surfacesI;
+    const Matrix3D<Vector3D>& _surfacesJ;
+    const Matrix3D<Vector3D>& _surfacesK;
 
     size_t _ni, _nj, _nk;
     std::map<std::string, Matrix3D<FloatType>> _outputFields;
