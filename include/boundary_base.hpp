@@ -56,12 +56,34 @@ protected:
         
 };
 
+enum class BoundaryOrientation {
+    I_START,
+    I_END,
+    J_START,
+    J_END,
+    K_START,
+    K_END
+};
+
 struct Boundary {
     std::string name;
     BoundaryType type;
     std::vector<FloatType> values;
     size_t i_min, i_max, j_min, j_max, k_min, k_max;
     std::shared_ptr<BoundaryBase> fluxMethod;
+    BoundaryOrientation orientation;
+
+    void computeOrientation() {
+        if (i_min == i_max) {
+            orientation = i_min == 0 ? BoundaryOrientation::I_START : BoundaryOrientation::I_END;
+        }
+        else if (j_min == j_max) {
+            orientation = j_min == 0 ? BoundaryOrientation::J_START : BoundaryOrientation::J_END;
+        }
+        else if (k_min == k_max) {
+            orientation = k_min == 0 ? BoundaryOrientation::K_START : BoundaryOrientation::K_END;
+        }
+    }
 };
 
 struct RadialEquilibriumProfile {

@@ -1,235 +1,322 @@
 #include "output.hpp"
 
+namespace {
+    constexpr const char* DENSITY                   = "Density";
+    constexpr const char* VELOCITY_X                = "Velocity X";
+    constexpr const char* VELOCITY_Y                = "Velocity Y";
+    constexpr const char* VELOCITY_Z                = "Velocity Z";
+    constexpr const char* TOTAL_ENERGY              = "Total Energy";
+    constexpr const char* PRESSURE                  = "Pressure";
+    constexpr const char* TEMPERATURE               = "Temperature";
+    constexpr const char* MACH                      = "Mach";
+    constexpr const char* TOTAL_PRESSURE            = "Total Pressure";
+    constexpr const char* TOTAL_TEMPERATURE         = "Total Temperature";
+    constexpr const char* ENTROPY                   = "Entropy";
+    constexpr const char* RELATIVE_VELOCITY_X       = "Relative Velocity X";
+    constexpr const char* RELATIVE_VELOCITY_Y       = "Relative Velocity Y";
+    constexpr const char* RELATIVE_VELOCITY_Z       = "Relative Velocity Z";
+    constexpr const char* GRID_VELOCITY_X           = "Grid Velocity X";
+    constexpr const char* GRID_VELOCITY_Y           = "Grid Velocity Y";
+    constexpr const char* GRID_VELOCITY_Z           = "Grid Velocity Z";
+    constexpr const char* RELATIVE_MACH             = "Relative Mach";
+    constexpr const char* VISCOUS_BODY_FORCE_X      = "Viscous Body Force X";
+    constexpr const char* VISCOUS_BODY_FORCE_Y      = "Viscous Body Force Y";
+    constexpr const char* VISCOUS_BODY_FORCE_Z      = "Viscous Body Force Z";
+    constexpr const char* INVISCID_BODY_FORCE_X     = "Inviscid Body Force X";
+    constexpr const char* INVISCID_BODY_FORCE_Y     = "Inviscid Body Force Y";
+    constexpr const char* INVISCID_BODY_FORCE_Z     = "Inviscid Body Force Z";
+    constexpr const char* BLOCKAGE                  = "Blockage";
+    constexpr const char* DEVIATION_ANGLE           = "Deviation Angle";
+    constexpr const char* EDDY_VISCOSITY            = "Eddy Viscosity";
+    constexpr const char* MOLECULAR_VISCOSITY       = "Molecular Viscosity";
+    constexpr const char* WALL_SHEAR_STRESS_X       = "Wall Shear Stress X";
+    constexpr const char* WALL_SHEAR_STRESS_Y       = "Wall Shear Stress Y";
+    constexpr const char* WALL_SHEAR_STRESS_Z       = "Wall Shear Stress Z";
+    constexpr const char* Y_PLUS                    = "Y Plus";
+}
+
 Output::Output(
     const Config &config, 
     const Mesh &mesh, 
     const FlowSolution &solution, 
+    const std::map<SolutionName, Matrix3D<Vector3D>>& solutionGrad,
     const FluidBase &fluid, 
+    const std::vector<Boundary> &boundaries,
     const Matrix3D<Vector3D> &inviscidForce, 
     const Matrix3D<Vector3D> &viscousForce,
-    const Matrix3D<FloatType> &deviationAngle,
-    const Matrix3D<FloatType> &wallDistance)
+    const Matrix3D<FloatType> &deviationAngle)
     : _config(config), 
     _mesh(mesh), 
     _solution(solution), 
+    _solutionGrad(solutionGrad),
     _fluid(fluid), 
+    _boundaries(boundaries),
+    _surfacesI(mesh.getSurfacesI()),
+    _surfacesJ(mesh.getSurfacesJ()),
+    _surfacesK(mesh.getSurfacesK()),
     _inviscidForce(inviscidForce), 
     _viscousForce(viscousForce), 
-    _deviationAngle(deviationAngle),
-    _wallDistance(wallDistance),
-    _isUnsteadyOutput(_config.saveUnsteadySolution()) {    
-    std::filesystem::create_directory(_outputDirectory);
-    _outputFields = _config.getOutputFields();
+    _deviationAngle(deviationAngle) {    
+
+    std::filesystem::create_directory(_outputVolumeDirectory);
+    _outputFieldsType = _config.getOutputFieldsType();
+    _isUnsteadyOutput = _config.saveUnsteadySolution();
+    
+    _ni = _mesh.getNumberPointsI();
+    _nj = _mesh.getNumberPointsJ();
+    _nk = _mesh.getNumberPointsK();
+    
+    _isBfmActive = _config.isBFMActive();
+    _isTurbulenceActive = _config.isTurbulenceActive();
+    
+    allocateOutputArrays();
     }
 
-
-
-void Output::getOutputFieldsMap(
-    std::map<std::string, Matrix3D<FloatType>>& fieldsMap, 
-    bool alsoGradients) const {
-    
-    allocateSpaceForOutput(fieldsMap, alsoGradients);
-    storeFields(fieldsMap, alsoGradients);
-}
-
-void Output::allocateSpaceForOutput(
-    std::map<std::string, Matrix3D<FloatType>>& fieldsMap, 
-    bool alsoGradients) const {
-
-    size_t ni = _mesh.getNumberPointsI();
-    size_t nj = _mesh.getNumberPointsJ();
-    size_t nk = _mesh.getNumberPointsK();
+void Output::allocateOutputArrays() {
     
     // Primary solution variables
-    fieldsMap["Density"] = _solution.getDensity();
-    fieldsMap["Velocity X"] = _solution.getVelocityX();
-    fieldsMap["Velocity Y"] = _solution.getVelocityY();
-    fieldsMap["Velocity Z"] = _solution.getVelocityZ();
-    fieldsMap["Total Energy"] = _solution.getTotalEnergy();
+    _outputFields.emplace(DENSITY,                      Matrix3D<FloatType>(_ni, _nj, _nk));
+    _outputFields.emplace(VELOCITY_X,                   Matrix3D<FloatType>(_ni, _nj, _nk));
+    _outputFields.emplace(VELOCITY_Y,                   Matrix3D<FloatType>(_ni, _nj, _nk));
+    _outputFields.emplace(VELOCITY_Z,                   Matrix3D<FloatType>(_ni, _nj, _nk));
+    _outputFields.emplace(TOTAL_ENERGY,                 Matrix3D<FloatType>(_ni, _nj, _nk));
+    _outputFields.emplace(PRESSURE,                     Matrix3D<FloatType>(_ni, _nj, _nk));
+    _outputFields.emplace(TEMPERATURE,                  Matrix3D<FloatType>(_ni, _nj, _nk));
     
     // Secondary solution variables
-    if (_outputFields == OutputFields::SECONDARY || _outputFields == OutputFields::TURBO_BFM){
-        fieldsMap.emplace("Pressure",          Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Temperature",       Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Mach",           Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Total Pressure",    Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Total Temperature", Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Entropy",           Matrix3D<FloatType>(ni, nj, nk));
-    }
-    
-    // allocate space also for gradients if needed
-    if (alsoGradients){
-        fieldsMap.emplace("Density Gradient X",          Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Density Gradient Y",          Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Density Gradient Z",          Matrix3D<FloatType>(ni, nj, nk));
-
-        fieldsMap.emplace("Velocity X Gradient X",       Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Velocity X Gradient Y",       Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Velocity X Gradient Z",       Matrix3D<FloatType>(ni, nj, nk));
-
-        fieldsMap.emplace("Velocity Y Gradient X",       Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Velocity Y Gradient Y",       Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Velocity Y Gradient Z",       Matrix3D<FloatType>(ni, nj, nk));
-
-        fieldsMap.emplace("Velocity Z Gradient X",       Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Velocity Z Gradient Y",       Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Velocity Z Gradient Z",       Matrix3D<FloatType>(ni, nj, nk));
-
-        fieldsMap.emplace("Pressure Gradient X",     Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Pressure Gradient Y",     Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Pressure Gradient Z",     Matrix3D<FloatType>(ni, nj, nk));
+    if (_outputFieldsType == OutputFieldsType::SECONDARY || _outputFieldsType == OutputFieldsType::TURBO_BFM){
+        _outputFields.emplace(MACH,                     Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(TOTAL_PRESSURE,           Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(TOTAL_TEMPERATURE,        Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(ENTROPY,                  Matrix3D<FloatType>(_ni, _nj, _nk));
     }
 
-    const bool isBFMActive = _config.isBFMActive();
-    if (isBFMActive && _outputFields == OutputFields::TURBO_BFM){
-        fieldsMap["Blockage"] = _mesh.getInputFields(InputField::BLOCKAGE);
-        fieldsMap.emplace("Relative Mach",          Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Grid Velocity X",        Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Grid Velocity Y",        Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Grid Velocity Z",        Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Relative Velocity X",    Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Relative Velocity Y",    Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Relative Velocity Z",    Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Viscous Body Force X",   Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Viscous Body Force Y",   Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Viscous Body Force Z",   Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Inviscid Body Force X",  Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Inviscid Body Force Y",  Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Inviscid Body Force Z",  Matrix3D<FloatType>(ni, nj, nk));
-        fieldsMap.emplace("Deviation Angle",        Matrix3D<FloatType>(ni, nj, nk));
+    // Turbo BFM variables
+    if (_isBfmActive && _outputFieldsType == OutputFieldsType::TURBO_BFM){
+        _outputFields.emplace(BLOCKAGE,                 Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(RELATIVE_MACH,            Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(GRID_VELOCITY_X,          Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(GRID_VELOCITY_Y,          Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(GRID_VELOCITY_Z,          Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(RELATIVE_VELOCITY_X,      Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(RELATIVE_VELOCITY_Y,      Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(RELATIVE_VELOCITY_Z,      Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(VISCOUS_BODY_FORCE_X,     Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(VISCOUS_BODY_FORCE_Y,     Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(VISCOUS_BODY_FORCE_Z,     Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(INVISCID_BODY_FORCE_X,    Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(INVISCID_BODY_FORCE_Y,    Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(INVISCID_BODY_FORCE_Z,    Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(DEVIATION_ANGLE,          Matrix3D<FloatType>(_ni, _nj, _nk));
     }
 
-    if (_config.isTurbulenceActive()){
-        fieldsMap.emplace("Wall Distance",        Matrix3D<FloatType>(ni, nj, nk));
+    // RANS variables
+    if (_isTurbulenceActive){
+        _outputFields.emplace(EDDY_VISCOSITY,           Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(MOLECULAR_VISCOSITY,      Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(WALL_SHEAR_STRESS_X,      Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(WALL_SHEAR_STRESS_Y,      Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(WALL_SHEAR_STRESS_Z,      Matrix3D<FloatType>(_ni, _nj, _nk));
+        _outputFields.emplace(Y_PLUS,                   Matrix3D<FloatType>(_ni, _nj, _nk));
     }
 }
     
 
-void Output::storeFields(
-    std::map<std::string, Matrix3D<FloatType>>& fieldsMap, 
-    bool alsoGradients) const {
+void Output::updateOutputArrays() {
     
-    size_t ni = _mesh.getNumberPointsI();
-    size_t nj = _mesh.getNumberPointsJ();
-    size_t nk = _mesh.getNumberPointsK();
-    const bool isBFMActive = _config.isBFMActive();
+    // Primary
+    updatePrimaryFields();
 
-    if (_outputFields == OutputFields::SECONDARY || _outputFields == OutputFields::TURBO_BFM){
-        Vector3D vel, gridVelCyl, gridVelCart, relVel;
-        FloatType rho, et, omega, radius, theta;
-        
-        for (size_t i = 0; i < ni; ++i) {
-            for (size_t j = 0; j < nj; ++j) {
-                for (size_t k = 0; k < nk; ++k) {
+    // Secondary
+    if (_outputFieldsType != OutputFieldsType::PRIMARY || _isTurbulenceActive){
+        updateSecondaryFields();
+    }
+
+    // Turbulence
+    if (_isTurbulenceActive){
+        updateTurbulenceFields();
+    }
+
+}
+
+void Output::updatePrimaryFields() {
+    _outputFields[DENSITY] = _solution.getDensity();
+    _outputFields[VELOCITY_X] = _solution.getVelocityX();
+    _outputFields[VELOCITY_Y] = _solution.getVelocityY();
+    _outputFields[VELOCITY_Z] = _solution.getVelocityZ();
+    _outputFields[TOTAL_ENERGY] = _solution.getTotalEnergy();
+    
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+                _outputFields[PRESSURE](i, j, k) = _fluid.computePressure_rho_u_et(
+                    _outputFields[DENSITY](i, j, k),
+                    {_outputFields[VELOCITY_X](i, j, k),
+                    _outputFields[VELOCITY_Y](i, j, k),
+                    _outputFields[VELOCITY_Z](i, j, k)},
+                    _outputFields[TOTAL_ENERGY](i, j, k)
+                );
                 
-                    rho = fieldsMap["Density"](i, j, k);
-                    vel.x() = fieldsMap["Velocity X"](i, j, k);
-                    vel.y() = fieldsMap["Velocity Y"](i, j, k);
-                    vel.z() = fieldsMap["Velocity Z"](i, j, k);
-                    et  = fieldsMap["Total Energy"](i, j, k);
+                _outputFields[TEMPERATURE](i, j, k) = _fluid.computeTemperature_rho_u_et(
+                    _outputFields[DENSITY](i, j, k),
+                    {_outputFields[VELOCITY_X](i, j, k),
+                    _outputFields[VELOCITY_Y](i, j, k),
+                    _outputFields[VELOCITY_Z](i, j, k)},
+                    _outputFields[TOTAL_ENERGY](i, j, k)
+                );
+            }
+        }
+    }
+}
 
-                    fieldsMap["Pressure"](i, j, k) = _fluid.computePressure_rho_u_et(rho, vel, et);
-                    fieldsMap["Temperature"](i, j, k) = _fluid.computeTemperature_rho_u_et(rho, vel, et);
-                    fieldsMap["Mach"](i, j, k) = _fluid.computeMachNumber_rho_u_et(rho, vel, et);
-                    fieldsMap["Total Pressure"](i, j, k) = _fluid.computeTotalPressure_rho_u_et(rho, vel, et);
-                    fieldsMap["Total Temperature"](i, j, k) = _fluid.computeTotalTemperature_rho_u_et(rho, vel, et);
-                    fieldsMap["Entropy"](i, j, k) = _fluid.computeEntropy_rho_u_et(rho, vel, et);
+void Output::updateSecondaryFields() {
+    Vector3D vel, gridVelCyl, gridVelCart, relVel;
+    FloatType rho, et, omega, radius, theta;
+    
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+            
+                rho = _outputFields[DENSITY](i, j, k);
+                vel.x() = _outputFields[VELOCITY_X](i, j, k);
+                vel.y() = _outputFields[VELOCITY_Y](i, j, k);
+                vel.z() = _outputFields[VELOCITY_Z](i, j, k);
+                et  = _outputFields[TOTAL_ENERGY](i, j, k);
 
-                    if (isBFMActive && _outputFields == OutputFields::TURBO_BFM){
-                        omega = _mesh.getInputFields(InputField::RPM)(i, j, k) * 2.0 * M_PI / 60.0;
-                        FloatType scalingFactor = _config.getRotationalSpeedScalingFactor();
-                        omega *= scalingFactor;
-                        radius = std::sqrt(_mesh.getVertex(i, j, k).z() * _mesh.getVertex(i, j, k).z() +
-                                                    _mesh.getVertex(i, j, k).y() * _mesh.getVertex(i, j, k).y());
-                        theta = std::atan2(_mesh.getVertex(i, j, k).z(), _mesh.getVertex(i, j, k).y());
-                        gridVelCyl = {0.0, 0.0, omega * radius};
-                        gridVelCart = computeCartesianComponentsFromCylindrical(gridVelCyl, theta);
+                _outputFields[MACH](i, j, k) = _fluid.computeMachNumber_rho_u_et(rho, vel, et);
+                _outputFields[TOTAL_PRESSURE](i, j, k) = _fluid.computeTotalPressure_rho_u_et(rho, vel, et);
+                _outputFields[TOTAL_TEMPERATURE](i, j, k) = _fluid.computeTotalTemperature_rho_u_et(rho, vel, et);
+                _outputFields[ENTROPY](i, j, k) = _fluid.computeEntropy_rho_u_et(rho, vel, et);
+                
+                // only for BFM
+                if (_isBfmActive && _outputFieldsType == OutputFieldsType::TURBO_BFM){
 
-                        fieldsMap["Grid Velocity X"](i, j, k) = gridVelCart.x();
-                        fieldsMap["Grid Velocity Y"](i, j, k) = gridVelCart.y();
-                        fieldsMap["Grid Velocity Z"](i, j, k) = gridVelCart.z();
-                        
-                        relVel = vel - gridVelCart;
-                        fieldsMap["Relative Velocity X"](i, j, k) = relVel.x();
-                        fieldsMap["Relative Velocity Y"](i, j, k) = relVel.y();
-                        fieldsMap["Relative Velocity Z"](i, j, k) = relVel.z();
+                    _outputFields[BLOCKAGE](i, j, k) = _mesh.getInputFields(InputField::BLOCKAGE)(i, j, k);
+                    omega = _mesh.getInputFields(InputField::RPM)(i, j, k) * 2.0 * M_PI / 60.0;
+                    omega *= _config.getRotationalSpeedScalingFactor();
+                    radius = _mesh.getRadius(i, j, k);
+                    theta = _mesh.getTheta(i, j, k);
+                    gridVelCyl = {0.0, 0.0, omega * radius};
+                    gridVelCart = computeCartesianComponentsFromCylindrical(gridVelCyl, theta);
 
-                        fieldsMap["Relative Mach"](i, j, k) = _fluid.computeMachNumber_rho_u_et(rho, relVel, et);
+                    _outputFields[GRID_VELOCITY_X](i, j, k) = gridVelCart.x();
+                    _outputFields[GRID_VELOCITY_Y](i, j, k) = gridVelCart.y();
+                    _outputFields[GRID_VELOCITY_Z](i, j, k) = gridVelCart.z();
+                    
+                    relVel = vel - gridVelCart;
+                    _outputFields[RELATIVE_VELOCITY_X](i, j, k) = relVel.x();
+                    _outputFields[RELATIVE_VELOCITY_Y](i, j, k) = relVel.y();
+                    _outputFields[RELATIVE_VELOCITY_Z](i, j, k) = relVel.z();
 
-                        fieldsMap["Viscous Body Force X"](i, j, k) = _viscousForce(i, j, k).x();
-                        fieldsMap["Viscous Body Force Y"](i, j, k) = _viscousForce(i, j, k).y();
-                        fieldsMap["Viscous Body Force Z"](i, j, k) = _viscousForce(i, j, k).z();
+                    _outputFields[RELATIVE_MACH](i, j, k) = _fluid.computeMachNumber_rho_u_et(rho, relVel, et);
 
-                        fieldsMap["Inviscid Body Force X"](i, j, k) = _inviscidForce(i, j, k).x();
-                        fieldsMap["Inviscid Body Force Y"](i, j, k) = _inviscidForce(i, j, k).y();
-                        fieldsMap["Inviscid Body Force Z"](i, j, k) = _inviscidForce(i, j, k).z();
+                    _outputFields[VISCOUS_BODY_FORCE_X](i, j, k) = _viscousForce(i, j, k).x();
+                    _outputFields[VISCOUS_BODY_FORCE_Y](i, j, k) = _viscousForce(i, j, k).y();
+                    _outputFields[VISCOUS_BODY_FORCE_Z](i, j, k) = _viscousForce(i, j, k).z();
 
-                        fieldsMap["Deviation Angle"](i, j, k) = _deviationAngle(i, j, k);
-                    }
+                    _outputFields[INVISCID_BODY_FORCE_X](i, j, k) = _inviscidForce(i, j, k).x();
+                    _outputFields[INVISCID_BODY_FORCE_Y](i, j, k) = _inviscidForce(i, j, k).y();
+                    _outputFields[INVISCID_BODY_FORCE_Z](i, j, k) = _inviscidForce(i, j, k).z();
 
-                    if (_config.isTurbulenceActive()){
-                        fieldsMap["Wall Distance"](i, j, k) = _wallDistance(i, j, k);
-                    }
-
+                    _outputFields[DEVIATION_ANGLE](i, j, k) = _deviationAngle(i, j, k);
                 }
             }
         }
     }
-    
-    if (alsoGradients){
-        // compute gradients
-        Matrix3D<Vector3D>  rhoGrad(ni, nj, nk), velXGrad(ni, nj, nk), velYGrad(ni, nj, nk), 
-                            velZGrad(ni, nj, nk), pressGrad(ni, nj, nk);
-        
-        computeGradientGreenGauss(  _mesh.getSurfacesI(), _mesh.getSurfacesJ(), _mesh.getSurfacesK(), 
-                                    _mesh.getMidPointsI(), _mesh.getMidPointsJ(), _mesh.getMidPointsK(), 
-                                    _mesh.getVertices(), _mesh.getVolumes(), fieldsMap["Density"], rhoGrad);
-        
-        computeGradientGreenGauss(  _mesh.getSurfacesI(), _mesh.getSurfacesJ(), _mesh.getSurfacesK(), 
-                                    _mesh.getMidPointsI(), _mesh.getMidPointsJ(), _mesh.getMidPointsK(), 
-                                    _mesh.getVertices(), _mesh.getVolumes(), fieldsMap["Velocity X"], velXGrad);
-        
-        computeGradientGreenGauss(  _mesh.getSurfacesI(), _mesh.getSurfacesJ(), _mesh.getSurfacesK(), 
-                                    _mesh.getMidPointsI(), _mesh.getMidPointsJ(), _mesh.getMidPointsK(), 
-                                    _mesh.getVertices(), _mesh.getVolumes(), fieldsMap["Velocity Y"], velYGrad);
-        
-        computeGradientGreenGauss(  _mesh.getSurfacesI(), _mesh.getSurfacesJ(), _mesh.getSurfacesK(), 
-                                    _mesh.getMidPointsI(), _mesh.getMidPointsJ(), _mesh.getMidPointsK(), 
-                                    _mesh.getVertices(), _mesh.getVolumes(), fieldsMap["Velocity Z"], velZGrad);
-        
-        computeGradientGreenGauss(  _mesh.getSurfacesI(), _mesh.getSurfacesJ(), _mesh.getSurfacesK(), 
-                                    _mesh.getMidPointsI(), _mesh.getMidPointsJ(), _mesh.getMidPointsK(), 
-                                    _mesh.getVertices(), _mesh.getVolumes(), fieldsMap["Pressure"], pressGrad);
-    
+}
 
+void Output::updateTurbulenceFields() {
 
-        for (size_t i = 0; i < ni; ++i) {
-            for (size_t j = 0; j < nj; ++j) {
-                for (size_t k = 0; k < nk; ++k) {
-                    fieldsMap["Density Gradient X"](i, j, k) = rhoGrad(i, j, k).x();
-                    fieldsMap["Density Gradient Y"](i, j, k) = rhoGrad(i, j, k).y();
-                    fieldsMap["Density Gradient Z"](i, j, k) = rhoGrad(i, j, k).z();
+    // volumetric fields
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+                _outputFields[MOLECULAR_VISCOSITY](i, j, k) = _fluid.computeMolecularDynamicViscosity(
+                    _outputFields[TEMPERATURE](i, j, k)
+                );
 
-                    fieldsMap["Velocity X Gradient X"](i, j, k) = velXGrad(i, j, k).x();
-                    fieldsMap["Velocity X Gradient Y"](i, j, k) = velXGrad(i, j, k).y();
-                    fieldsMap["Velocity X Gradient Z"](i, j, k) = velXGrad(i, j, k).z();
-
-                    fieldsMap["Velocity Y Gradient X"](i, j, k) = velYGrad(i, j, k).x();
-                    fieldsMap["Velocity Y Gradient Y"](i, j, k) = velYGrad(i, j, k).y();
-                    fieldsMap["Velocity Y Gradient Z"](i, j, k) = velYGrad(i, j, k).z();
-
-                    fieldsMap["Velocity Z Gradient X"](i, j, k) = velZGrad(i, j, k).x();
-                    fieldsMap["Velocity Z Gradient Y"](i, j, k) = velZGrad(i, j, k).y();
-                    fieldsMap["Velocity Z Gradient Z"](i, j, k) = velZGrad(i, j, k).z();
-
-                    fieldsMap["Pressure Gradient X"](i, j, k) = pressGrad(i, j, k).x();
-                    fieldsMap["Pressure Gradient Y"](i, j, k) = pressGrad(i, j, k).y();
-                    fieldsMap["Pressure Gradient Z"](i, j, k) = pressGrad(i, j, k).z();
-                }
+                _outputFields[EDDY_VISCOSITY](i, j, k) = 0.0;
             }
         }
     }
 
+    // no-slip wall fields
+    for (auto& bound: _boundaries) {
+        if (bound.type == BoundaryType::NO_SLIP_WALL) {
+            BoundaryNodesIndexRange range = fetchBoundaryNodesIndexRange(bound, _ni, _nj, _nk);
+            for (size_t i = range.iStart; i < range.iLast; ++i) {
+                for (size_t j = range.jStart; j < range.jLast; ++j) {
+                    for (size_t k = range.kStart; k < range.kLast; ++k) {
+
+                        // the node is already on the boundary, no need for interpolation
+                        Vector3D tauWall = computeWallShearStress(bound, i, j, k);
+                        _outputFields[WALL_SHEAR_STRESS_X](i, j, k) = tauWall.x();
+                        _outputFields[WALL_SHEAR_STRESS_Y](i, j, k) = tauWall.y();
+                        _outputFields[WALL_SHEAR_STRESS_Z](i, j, k) = tauWall.z();
+
+                        _outputFields[Y_PLUS](i, j, k) = std::sqrt(
+                            tauWall.magnitude() / _outputFields[DENSITY](i, j, k)
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+Vector3D Output::computeWallShearStress(Boundary boundary, size_t i, size_t j, size_t k) {
+    
+    // velocity gradient
+    Vector3D gradU, gradV, gradW;
+    gradU = _solutionGrad.at(SolutionName::VELOCITY_X)(i, j, k);
+    gradV = _solutionGrad.at(SolutionName::VELOCITY_Y)(i, j, k);
+    gradW = _solutionGrad.at(SolutionName::VELOCITY_Z)(i, j, k);
+
+    // viscous stress with Stokes hypothesis
+    FloatType mu = _outputFields[MOLECULAR_VISCOSITY](i, j, k);
+    FloatType muEddy = _outputFields[EDDY_VISCOSITY](i, j, k);
+    FloatType muEffective = mu + muEddy;
+    FloatType lambda = -2.0 * mu / 3.0;
+    ViscousStressTensor tau = computeViscousStressTensor(
+        muEffective,
+        lambda,
+        gradU,
+        gradV,
+        gradW
+    );
+
+    // Extract the surface vector, oriented towards the fluid
+    Vector3D surface;
+    switch (boundary.orientation) {
+        case BoundaryOrientation::I_START : {
+            surface = _surfacesI(0, j, k);
+            break;
+        }
+        case BoundaryOrientation::I_END : {
+            surface = -_surfacesI(boundary.i_max, j, k);
+            break;
+        }
+        case BoundaryOrientation::J_START : {
+            surface = _surfacesJ(i, 0, k);
+            break;
+        }
+        case BoundaryOrientation::J_END : {
+            surface = -_surfacesJ(i, boundary.j_max, k);
+            break;
+        }
+        case BoundaryOrientation::K_START : {
+            surface = _surfacesK(i, j, 0);
+            break;
+        }
+        case BoundaryOrientation::K_END : {
+            surface = -_surfacesK(i, j, boundary.k_max);
+            break;
+        }
+    }
+    surface = surface.normalized();
+    Vector3D tauWall = computeViscousStressVector(tau, surface);
+
+    return tauWall;
 }
 
 
@@ -247,51 +334,51 @@ std::string Output::getOutputFilename(size_t iterationCounter) {
     return filename;
 }
 
-void Output::writeSolution(size_t iterationCounter, bool alsoGradients){
+void Output::writeSolution(size_t iterationCounter){
+    updateOutputArrays();
+
     std::string filename = getOutputFilename(iterationCounter);
-    std::ofstream file(_outputDirectory + "/" + filename + ".csv");
+    std::ofstream file(_outputVolumeDirectory + "/" + filename + ".csv");
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file: " + filename);
-    }
+    };
+    writeHeader(file);
+    writeData(file);
+    file.close();
+    std::cout << std::endl;
+    std::cout << "Solution written to file: " << filename << std::endl;
+    std::cout << std::endl;}
 
-    std::map<std::string, Matrix3D<FloatType>> scalarFieldsMap;
-    getOutputFieldsMap(scalarFieldsMap, alsoGradients);
 
-    size_t ni = _mesh.getNumberPointsI();
-    size_t nj = _mesh.getNumberPointsJ();
-    size_t nk = _mesh.getNumberPointsK();
-    file << "NI=" << ni << "\n";
-    file << "NJ=" << nj << "\n";
-    file << "NK=" << nk << "\n";
+void Output::writeHeader(std::ofstream& file) const {
+    file << "NI=" << _ni << "\n";
+    file << "NJ=" << _nj << "\n";
+    file << "NK=" << _nk << "\n";
 
     // write coordinates header
     file << "x,y,z";
 
     // write scalar fields header
-    for (auto& field : scalarFieldsMap){
+    for (auto& field : _outputFields) {
         file << "," << field.first;
     }
     file << "\n";
+}
 
-    // write data
-    for (size_t i=0; i<ni; ++i){
-        for (size_t j=0; j<nj; ++j){
-            for (size_t k=0; k<nk; ++k){
+void Output::writeData(std::ofstream& file) const {
+    for (size_t i=0; i<_ni; ++i){
+        for (size_t j=0; j<_nj; ++j){
+            for (size_t k=0; k<_nk; ++k){
                 file << _mesh.getVertex(i,j,k).x() 
                      << "," 
                      << _mesh.getVertex(i,j,k).y() 
                      << "," 
                      << _mesh.getVertex(i,j,k).z() ;
-                for (auto& field : scalarFieldsMap){
+                for (auto& field : _outputFields) {
                     file << "," << field.second(i,j,k);
                 }
                 file << "\n";
             }
         }
     }
-
-    file.close();
-
-    std::cout << std::endl;
-    std::cout << "Solution written to file: " << filename << std::endl;
-    std::cout << std::endl;}
+}

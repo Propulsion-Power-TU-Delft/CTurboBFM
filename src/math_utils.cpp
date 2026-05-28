@@ -430,3 +430,30 @@ Matrix2D<FloatType> computeAdvectionJacobian(
     return jacobian;
 
 }
+
+ViscousStressTensor computeViscousStressTensor(
+    const FloatType& mu, 
+    const FloatType& lambda, 
+    const Vector3D& gradU, 
+    const Vector3D& gradV, 
+    const Vector3D& gradW){
+
+    ViscousStressTensor viscousStressTensor;
+    viscousStressTensor.xx = lambda * (gradU.x() + gradV.y() + gradW.z()) + 2.0 * mu * gradU.x();
+    viscousStressTensor.yy = lambda * (gradU.x() + gradV.y() + gradW.z()) + 2.0 * mu * gradV.y();
+    viscousStressTensor.zz = lambda * (gradU.x() + gradV.y() + gradW.z()) + 2.0 * mu * gradW.z();
+    viscousStressTensor.xy = mu * (gradU.y() + gradV.x());
+    viscousStressTensor.xz = mu * (gradU.z() + gradW.x());
+    viscousStressTensor.yz = mu * (gradV.z() + gradW.y());
+    return viscousStressTensor;
+}
+
+Vector3D computeViscousStressVector(const ViscousStressTensor& viscousStressTensor, const Vector3D& surface){
+    Vector3D tau;
+    
+    tau.x() = viscousStressTensor.xx * surface.x() + viscousStressTensor.xy * surface.y() + viscousStressTensor.xz * surface.z();
+    tau.y() = viscousStressTensor.xy * surface.x() + viscousStressTensor.yy * surface.y() + viscousStressTensor.yz * surface.z();
+    tau.z() = viscousStressTensor.xz * surface.x() + viscousStressTensor.yz * surface.y() + viscousStressTensor.zz * surface.z();
+    
+    return tau;
+}

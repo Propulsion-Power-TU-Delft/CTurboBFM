@@ -132,6 +132,7 @@ void Solver::readBoundaryFile() {
 
         patch.type   = _config.getBoundaryType(patch.name);
         patch.values = _config.getBoundaryValues(patch.name);
+        patch.computeOrientation();
 
         _boundaries.push_back(patch);
     }
@@ -537,10 +538,10 @@ void Solver::buildTurbulenceModel(){
     _isTurbulenceActive = _config.isTurbulenceActive();
     TurbulenceModel turbulenceModel = _config.getTurbulenceModel();
     if (turbulenceModel == TurbulenceModel::SPALART_ALLMARAS) {
-        _turbulenceModel = std::make_unique<TurbulenceModelSA>(_config, *_fluid, _mesh);
+        _turbulenceModel = std::make_unique<TurbulenceModelSA>(_config, *_fluid, _mesh, _boundaries, _wallDistance);
     }
     else if (turbulenceModel == TurbulenceModel::NONE) {
-        _turbulenceModel = std::make_unique<TurbulenceModelBase>(_config, *_fluid, _mesh);
+        throw std::runtime_error("Unsupported turbulence model selected.");
     }
     else {
         throw std::runtime_error("Unsupported turbulence model selected.");
@@ -604,10 +605,12 @@ void Solver::buildOutputStructure(){
         _config, 
         _mesh, 
         _conservativeSolution, 
-        *_fluid, _inviscidForce, 
+        _solutionGrad,
+        *_fluid, 
+        _boundaries,
+        _inviscidForce, 
         _viscousForce, 
-        _deviationAngle,
-        _wallDistance);
+        _deviationAngle);
 }
 
 void Solver::initializeSolutionFromScratch(){
@@ -913,6 +916,7 @@ void Solver::solve(){
         // runge-kutta steps
         preprocessSolution(solutionTmp);
         for (const auto &integrationCoeff: timeIntegrationCoeffs){
+            computeTurbulenceSolution(solutionTmp, solutionGradTmp);
             computeSolutionGradient(solutionTmp, solutionGradTmp);
             computeResiduals(solutionTmp, solutionGradTmp, it, _time.back(), timestep, residuals);
             updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
@@ -945,7 +949,7 @@ void Solver::solve(){
 
         // write volume output file
         if (it%solutionOutputFreq == 0 || it == nIterMax) {
-            _output->writeSolution(it, false);
+            _output->writeSolution(it);
         } 
 
         // write additional text files
@@ -1449,9 +1453,7 @@ void Solver::computeViscousFluxResiduals(
     size_t nj = surfaces.sizeJ(); 
     size_t nk = surfaces.sizeK();
     
-    // The viscous fluxes have no contribution here to the boundary elements, since their effect is already
-    // treated with the boundary conditions in the advection part. Extra things (such as no-slip walls) are
-    // also treated elsewhere --> so only internal fluxes are computed here.
+    // Following the idea of Blazek, and assuming adiabatic walls, there is no viscous flux coming from boundaries
     for (size_t iFace = 1; iFace < ni-1; ++iFace) {
         for (size_t jFace = 1; jFace < nj-1; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
@@ -1476,12 +1478,9 @@ void Solver::computeViscousFluxResiduals(
                     throw std::runtime_error("Invalid FluxDirection.");
                 }
                 
-                if (dirFace == 0) {
-                    continue;
-                } 
-                else if (dirFace == stopFace) { 
-                    continue;
-                } 
+                if (dirFace == 0 || dirFace == stopFace) {
+                    continue; // skip k-boundaries for 3D cases, but work also for 2D
+                }  
                 else {
                     Uleft = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
                     Uright = solution.at(iFace, jFace, kFace);
@@ -1529,7 +1528,6 @@ void Solver::computeViscousFluxResiduals(
             }
         }
     }
-    
 }
 
 
@@ -1550,32 +1548,27 @@ StateVector Solver::computeViscousFlux(
         vel, 
         primitive[4]);
     
-    // fluid quantities
+    // flow quantities
     FloatType mu = _fluid->computeMolecularDynamicViscosity(temperature);
+    FloatType muEddy = 0.0; // to get from turbulence model solution here
+    std::cout << "Eddy props still missing..... add me here from turbulence solution" << std::endl;
     FloatType secondaryViscosity = -2.0 / 3.0 * mu;         
     FloatType kappa = _fluid->computeThermalConductivity(mu);
+    FloatType kappaEddy = 0.0; // to get from config here, luminary = 0.86
+
+    // total properties (molecular + eddy)
+    FloatType muTotal = mu + muEddy;
+    FloatType kappaTotal = kappa + kappaEddy;
     
-    // viscous stresses
-    FloatType tauxx, tauyy, tauzz, tauxy, tauxz, tauyz;
-    FloatType divVel = velXGrad.x() + velYGrad.y() + velZGrad.z();
-    
-    // viscous stresses
-    tauxx = secondaryViscosity * divVel + 2.0 * mu * velXGrad.x();
-    tauyy = secondaryViscosity * divVel + 2.0 * mu * velYGrad.y();
-    tauzz = secondaryViscosity * divVel + 2.0 * mu * velZGrad.z();
+    ViscousStressTensor tau = computeViscousStressTensor(muTotal, secondaryViscosity, velXGrad, velYGrad, velZGrad);
+    Vector3D tauX = Vector3D(tau.xx, tau.xy, tau.xz);
+    Vector3D tauY = Vector3D(tau.xy, tau.yy, tau.yz);
+    Vector3D tauZ = Vector3D(tau.xz, tau.yz, tau.zz);
 
-    tauxy = mu * (velXGrad.y() + velYGrad.x());
-    tauxz = mu * (velXGrad.z() + velZGrad.x());
-    tauyz = mu * (velYGrad.z() + velZGrad.y());
-
-    Vector3D tauX = Vector3D(tauxx, tauxy, tauxz);
-    Vector3D tauY = Vector3D(tauxy, tauyy, tauyz);
-    Vector3D tauZ = Vector3D(tauxz, tauyz, tauzz);
-
-    // theta terms (Blazek pag 17)
-    FloatType thetaX = tauX.dot(vel) + kappa * tempGrad.x();
-    FloatType thetaY = tauY.dot(vel) + kappa * tempGrad.y();
-    FloatType thetaZ = tauZ.dot(vel) + kappa * tempGrad.z();
+    // theta terms (Blazek book pag 17)
+    FloatType thetaX = tauX.dot(vel) + kappaTotal * tempGrad.x();
+    FloatType thetaY = tauY.dot(vel) + kappaTotal * tempGrad.y();
+    FloatType thetaZ = tauZ.dot(vel) + kappaTotal * tempGrad.z();
 
     StateVector flux({0.0, 0.0, 0.0, 0.0, 0.0});
     Vector3D surfDir = surface / surface.magnitude();
@@ -1586,8 +1579,7 @@ StateVector Solver::computeViscousFlux(
     flux[3] = tauZ.dot(surfDir);
     flux[4] = thetaX*surfDir.x() + thetaY*surfDir.y() + thetaZ*surfDir.z();
 
-    return flux*(-1.0); // minus due to viscous flux positive considered on the left hand side of equations
-
+    return flux * (-1.0); // minus due to viscous flux positive considered on the left hand side of equations
 }
 
 
@@ -2038,6 +2030,15 @@ void Solver::computeSolutionGradient(FlowSolution &sol, std::map<SolutionName, M
     
 }
 
+void Solver::computeTurbulenceSolution(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad){
+    if (!_config.isTurbulenceActive()){
+        return;
+    }
+
+    _turbulenceModel->setupBoundaryValues(sol, solutionGrad);  
+    _turbulenceModel->solve(sol, solutionGrad);  
+}
+
 
 StateVector Solver::computeGongSource(
     const FloatType& radius, 
@@ -2110,15 +2111,6 @@ StateVector Solver::computeGongSource(
 
     return source*volume;
 }
-
-
-
-void Solver::writeSolution(size_t iterationCounter, bool alsoGradients){
-    _output->writeSolution(iterationCounter, alsoGradients);
-}
-
-
-
 
 void Solver::setMomentumSolutionOnViscousWalls(
     FlowSolution &sol, 

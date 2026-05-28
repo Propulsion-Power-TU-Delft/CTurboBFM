@@ -96,3 +96,22 @@ FloatType rescaleMinMax(const FloatType& value, const FloatType& min, const Floa
 FloatType linearInterpolation(const std::vector<double>& x, const std::vector<double>& y, const FloatType& xp);
 
 void writeDataToCsv(const std::vector<FloatType>& data, const std::string& filename);
+
+struct ViscousStressTensor {
+    FloatType xx = 0.0;
+    FloatType yy = 0.0;
+    FloatType zz = 0.0;
+    FloatType xy = 0.0;
+    FloatType xz = 0.0;
+    FloatType yz = 0.0;
+};
+
+ViscousStressTensor computeViscousStressTensor(
+    const FloatType& mu, 
+    const FloatType& lambda, 
+    const Vector3D& gradU, 
+    const Vector3D& gradV, 
+    const Vector3D& gradW
+);
+
+Vector3D computeViscousStressVector(const ViscousStressTensor& viscousStressTensor, const Vector3D& surface);

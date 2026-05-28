@@ -158,12 +158,12 @@ void FluidIdeal::setTransportProperties(const Config &config){
     _Pr = config.getFluidPrandtlNumber();      
 }
 
-FloatType FluidIdeal::computeMolecularDynamicViscosity(FloatType temperature) {
+FloatType FluidIdeal::computeMolecularDynamicViscosity(FloatType temperature) const {
     return _sutherlandMuRef * std::pow(temperature/_sutherlandTemperatureRef, 1.5) * (
         (_sutherlandTemperatureRef + _sutherlandSconstant) / (temperature + _sutherlandSconstant)
     );   
 }
 
-FloatType FluidIdeal::computeThermalConductivity(FloatType dynamicViscosity) {
+FloatType FluidIdeal::computeThermalConductivity(FloatType dynamicViscosity) const {
     return _cp * dynamicViscosity / _Pr; 
 }

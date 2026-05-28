@@ -75,9 +75,9 @@ public:
     
     void setTransportProperties(const Config &config) override;
 
-    FloatType computeMolecularDynamicViscosity(FloatType temperature) override;
+    FloatType computeMolecularDynamicViscosity(FloatType temperature) const override;
 
-    FloatType computeThermalConductivity(FloatType dynamicViscosity) override;
+    FloatType computeThermalConductivity(FloatType dynamicViscosity) const override;
 
 private:
     FloatType _gamma;  
