@@ -150,6 +150,8 @@ private:
 
     void computeSolutionGradient(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad);
 
+    void computeTurbulenceSolution(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad);
+
     void printInfoResiduals(FlowSolution &residuals, size_t it);
 
     void initializeSolutionFromScratch();
