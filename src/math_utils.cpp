@@ -457,3 +457,24 @@ Vector3D computeViscousStressVector(const ViscousStressTensor& viscousStressTens
     
     return tau;
 }
+
+FloatType computeRotationRateMagnitude(
+    const Vector3D& gradU,
+    const Vector3D& gradV,
+    const Vector3D& gradW)
+{
+
+    // Antisymmetric tensor components
+    FloatType Omega12 = 0.5 * (gradU.y() - gradV.x());
+    FloatType Omega13 = 0.5 * (gradU.z() - gradW.x());
+    FloatType Omega23 = 0.5 * (gradV.z() - gradW.y());
+
+    FloatType S = 2.0 * std::sqrt(
+        Omega12 * Omega12 +
+        Omega13 * Omega13 +
+        Omega23 * Omega23
+    );
+
+    return S;
+
+}

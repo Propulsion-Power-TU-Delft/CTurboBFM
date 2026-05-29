@@ -285,4 +285,6 @@ public:
     FloatType getSutherlandTemperatureRef() const {return parseFloat("FLUID_SUTHERLAND_T_REF");}
 
     FloatType getSutherlandSconstant() const {return parseFloat("FLUID_SUTHERLAND_S");}
+
+    FloatType getTurbulentPrandtlNumber() const {return parseFloat("TURBULENT_PRANDTL_NUMBER");}
 };

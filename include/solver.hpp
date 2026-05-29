@@ -150,7 +150,11 @@ private:
 
     void computeSolutionGradient(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad);
 
-    void computeTurbulenceSolution(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad);
+    void updateTurbulenceSolution(
+        FlowSolution &sol, 
+        std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad,
+        const FloatType &integrationCoeff, 
+        const Matrix3D<FloatType> &dt);
 
     void printInfoResiduals(FlowSolution &residuals, size_t it);
 
@@ -251,7 +255,8 @@ private:
         const Vector3D& velYGrad, 
         const Vector3D& velZGrad, 
         const Vector3D& tempGrad, 
-        const Vector3D& surface) const;
+        const Vector3D& surface,
+        const FloatType& eddyViscosity) const;
 
 protected:
     void enforcePeriodicityOnResiduals(FlowSolution& residuals, FloatType& angleRad) const;

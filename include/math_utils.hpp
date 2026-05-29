@@ -115,3 +115,9 @@ ViscousStressTensor computeViscousStressTensor(
 );
 
 Vector3D computeViscousStressVector(const ViscousStressTensor& viscousStressTensor, const Vector3D& surface);
+
+FloatType computeRotationRateMagnitude(
+    const Vector3D& gradU, 
+    const Vector3D& gradV, 
+    const Vector3D& gradW
+);

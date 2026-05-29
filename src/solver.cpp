@@ -608,6 +608,7 @@ void Solver::buildOutputStructure(){
         _solutionGrad,
         *_fluid, 
         _boundaries,
+        *_turbulenceModel,
         _inviscidForce, 
         _viscousForce, 
         _deviationAngle);
@@ -916,7 +917,7 @@ void Solver::solve(){
         // runge-kutta steps
         preprocessSolution(solutionTmp);
         for (const auto &integrationCoeff: timeIntegrationCoeffs){
-            computeTurbulenceSolution(solutionTmp, solutionGradTmp);
+            updateTurbulenceSolution(solutionTmp, solutionGradTmp, integrationCoeff, timestep);
             computeSolutionGradient(solutionTmp, solutionGradTmp);
             computeResiduals(solutionTmp, solutionGradTmp, it, _time.back(), timestep, residuals);
             updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
@@ -1448,6 +1449,7 @@ void Solver::computeViscousFluxResiduals(
     StateVector Uleft{}, Uright{}, Uavg{}, flux {};
     Vector3D surface {};
     Vector3D uxGrad, uyGrad, uzGrad, tempGrad;
+    FloatType muEddy;
 
     size_t ni = surfaces.sizeI(); 
     size_t nj = surfaces.sizeJ(); 
@@ -1510,8 +1512,17 @@ void Solver::computeViscousFluxResiduals(
                         kFace-1*stepMask[2]) + 
                         gradients.at(SolutionName::TEMPERATURE)(iFace, jFace, kFace)) * 0.5;
                     
+                    muEddy = (
+                        _turbulenceModel->getEddyViscosity(solution.at(iFace, jFace, kFace)[0], iFace, jFace, kFace) +
+                        _turbulenceModel->getEddyViscosity(
+                            solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2])[0], 
+                            iFace-1*stepMask[0], 
+                            jFace-1*stepMask[1], 
+                            kFace-1*stepMask[2])
+                            ) * 0.5;
+                    
                     surface = surfaces(iFace, jFace, kFace);
-                    flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface);
+                    flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
                     
                     residuals.add(
                         iFace-1*stepMask[0], 
@@ -1537,7 +1548,8 @@ StateVector Solver::computeViscousFlux(
     const Vector3D& velYGrad, 
     const Vector3D& velZGrad, 
     const Vector3D& tempGrad, 
-    const Vector3D& surface) const{
+    const Vector3D& surface,
+    const FloatType& eddyViscosity) const{
     
     StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
 
@@ -1549,16 +1561,18 @@ StateVector Solver::computeViscousFlux(
         primitive[4]);
     
     // flow quantities
-    FloatType mu = _fluid->computeMolecularDynamicViscosity(temperature);
-    FloatType muEddy = 0.0; // to get from turbulence model solution here
-    std::cout << "Eddy props still missing..... add me here from turbulence solution" << std::endl;
-    FloatType secondaryViscosity = -2.0 / 3.0 * mu;         
-    FloatType kappa = _fluid->computeThermalConductivity(mu);
-    FloatType kappaEddy = 0.0; // to get from config here, luminary = 0.86
-
-    // total properties (molecular + eddy)
-    FloatType muTotal = mu + muEddy;
-    FloatType kappaTotal = kappa + kappaEddy;
+    FloatType muL = _fluid->computeMolecularDynamicViscosity(temperature);
+    FloatType muEddy = eddyViscosity;
+    FloatType secondaryViscosity = -2.0 / 3.0 * muL;         
+    
+    FloatType kappaL = _fluid->computeThermalConductivity(muL);
+    FloatType cp = _config.getFluidHeatCapacity();
+    FloatType Prt = _config.getTurbulentPrandtlNumber();
+    FloatType kappaEddy = cp * muEddy / Prt;
+    
+    // total flow quantities
+    FloatType muTotal = muL + muEddy;
+    FloatType kappaTotal = kappaL + kappaEddy;
     
     ViscousStressTensor tau = computeViscousStressTensor(muTotal, secondaryViscosity, velXGrad, velYGrad, velZGrad);
     Vector3D tauX = Vector3D(tau.xx, tau.xy, tau.xz);
@@ -2030,13 +2044,16 @@ void Solver::computeSolutionGradient(FlowSolution &sol, std::map<SolutionName, M
     
 }
 
-void Solver::computeTurbulenceSolution(FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad){
+void Solver::updateTurbulenceSolution(
+    FlowSolution &sol, std::map<SolutionName, Matrix3D<Vector3D>> &solutionGrad,
+    const FloatType &integrationCoeff, 
+    const Matrix3D<FloatType> &dt){
+    
     if (!_config.isTurbulenceActive()){
         return;
     }
-
-    _turbulenceModel->setupBoundaryValues(sol, solutionGrad);  
-    _turbulenceModel->solve(sol, solutionGrad);  
+    
+    _turbulenceModel->solve(sol, solutionGrad, dt*integrationCoeff);  
 }
 
 

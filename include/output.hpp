@@ -6,6 +6,8 @@
 #include "output.hpp"
 #include "math_utils.hpp"
 #include "boundary_base.hpp"
+#include "turbulence_model_base.hpp"
+#include "turbulence_model_sa.hpp"
 #include <fstream>
 #include <filesystem>
 
@@ -20,6 +22,7 @@ public:
         const std::map<SolutionName, Matrix3D<Vector3D>>& solutionGrad,
         const FluidBase &fluid, 
         const std::vector<Boundary> &boundaries,
+        const TurbulenceModelBase &turbulenceModel,
         const Matrix3D<Vector3D> &inviscidForce, 
         const Matrix3D<Vector3D> &viscousForce, 
         const Matrix3D<FloatType> &deviationAngle);
@@ -56,6 +59,7 @@ protected:
     const std::map<SolutionName, Matrix3D<Vector3D>>& _solutionGrad;
     const FluidBase& _fluid;
     const std::vector<Boundary>& _boundaries;
+    const TurbulenceModelBase& _turbulenceModel;
     const Matrix3D<Vector3D>& _surfacesI;
     const Matrix3D<Vector3D>& _surfacesJ;
     const Matrix3D<Vector3D>& _surfacesK;

@@ -42,6 +42,7 @@ Output::Output(
     const std::map<SolutionName, Matrix3D<Vector3D>>& solutionGrad,
     const FluidBase &fluid, 
     const std::vector<Boundary> &boundaries,
+    const TurbulenceModelBase &turbulenceModel,
     const Matrix3D<Vector3D> &inviscidForce, 
     const Matrix3D<Vector3D> &viscousForce,
     const Matrix3D<FloatType> &deviationAngle)
@@ -51,6 +52,7 @@ Output::Output(
     _solutionGrad(solutionGrad),
     _fluid(fluid), 
     _boundaries(boundaries),
+    _turbulenceModel(turbulenceModel),
     _surfacesI(mesh.getSurfacesI()),
     _surfacesJ(mesh.getSurfacesJ()),
     _surfacesK(mesh.getSurfacesK()),
@@ -235,7 +237,7 @@ void Output::updateTurbulenceFields() {
                     _outputFields[TEMPERATURE](i, j, k)
                 );
 
-                _outputFields[EDDY_VISCOSITY](i, j, k) = 0.0;
+                _outputFields[EDDY_VISCOSITY](i, j, k) = _turbulenceModel.getEddyViscosity(_outputFields[DENSITY](i, j, k), i, j, k);
             }
         }
     }
