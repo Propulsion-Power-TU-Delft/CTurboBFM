@@ -70,6 +70,7 @@ Output::Output(
     
     _isBfmActive = _config.isBFMActive();
     _isTurbulenceActive = _config.isTurbulenceActive();
+    _isViscosityActive = _config.isViscosityActive();
     
     allocateOutputArrays();
     }
@@ -113,7 +114,7 @@ void Output::allocateOutputArrays() {
     }
 
     // RANS variables
-    if (_isTurbulenceActive){
+    if (_isTurbulenceActive || _isViscosityActive){
         _outputFields.emplace(EDDY_VISCOSITY,           Matrix3D<FloatType>(_ni, _nj, _nk));
         _outputFields.emplace(MOLECULAR_VISCOSITY,      Matrix3D<FloatType>(_ni, _nj, _nk));
         _outputFields.emplace(WALL_SHEAR_STRESS_X,      Matrix3D<FloatType>(_ni, _nj, _nk));
@@ -135,8 +136,8 @@ void Output::updateOutputArrays() {
     }
 
     // Turbulence
-    if (_isTurbulenceActive){
-        updateTurbulenceFields();
+    if (_isTurbulenceActive || _isViscosityActive){
+        updateViscousFields();
     }
 
 }
@@ -227,7 +228,7 @@ void Output::updateSecondaryFields() {
     }
 }
 
-void Output::updateTurbulenceFields() {
+void Output::updateViscousFields() {
 
     // volumetric fields
     for (size_t i = 0; i < _ni; ++i) {

@@ -199,7 +199,7 @@ TurbulenceModel Config::getTurbulenceModel() const {
     TurbulenceModel model = TurbulenceModel::NONE;
     if (value == "SA") {
         model = TurbulenceModel::SPALART_ALLMARAS;
-    } else if (value == "None") {
+    } else if (value == "None" || isTurbulenceActive() == false) {
         model = TurbulenceModel::NONE;
     }
     else {

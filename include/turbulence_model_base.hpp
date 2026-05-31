@@ -44,6 +44,8 @@ public:
 
     virtual FloatType getEddyViscosity(const FloatType &density, size_t i, size_t j, size_t k) const = 0;
 
+    virtual FloatType getEddyThermalConductivity(const FloatType &mu, const FloatType &cp, const FloatType &Pr) const = 0;
+
 protected:
     const Config& _config;
     const FluidBase& _fluid;

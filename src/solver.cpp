@@ -541,7 +541,7 @@ void Solver::buildTurbulenceModel(){
         _turbulenceModel = std::make_unique<TurbulenceModelSA>(_config, *_fluid, _mesh, _boundaries, _wallDistance);
     }
     else if (turbulenceModel == TurbulenceModel::NONE) {
-        throw std::runtime_error("Unsupported turbulence model selected.");
+        _turbulenceModel = std::make_unique<TurbulenceModelNone>(_config, *_fluid, _mesh, _boundaries, _wallDistance);
     }
     else {
         throw std::runtime_error("Unsupported turbulence model selected.");
@@ -917,7 +917,7 @@ void Solver::solve(){
         // runge-kutta steps
         preprocessSolution(solutionTmp);
         for (const auto &integrationCoeff: timeIntegrationCoeffs){
-            updateTurbulenceSolution(solutionTmp, solutionGradTmp, integrationCoeff, timestep);
+            // updateTurbulenceSolution(solutionTmp, solutionGradTmp, integrationCoeff, timestep);
             computeSolutionGradient(solutionTmp, solutionGradTmp);
             computeResiduals(solutionTmp, solutionGradTmp, it, _time.back(), timestep, residuals);
             updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
@@ -1020,7 +1020,7 @@ void Solver::printLogResiduals(const StateVector &logRes, unsigned long int it) 
 
 StateVector Solver::computeLogResidualNorm(const FlowSolution &residuals) const {
     StateVector logResidualNorm{};
-    constexpr double minDouble = std::numeric_limits<FloatType>::min();
+    constexpr FloatType minDouble = std::numeric_limits<FloatType>::min();
 
     for (int i = 0; i < 5; i++) {
         auto residualNorm = residuals.norm(i);
@@ -1059,10 +1059,10 @@ void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatTy
     Vector3D iEdge, jEdge, kEdge;
     Vector3D iDir, jDir, kDir;
     Vector3D velocity;
+    FloatType rho, temperature;
     StateVector primitive, conservative;
-    FloatType soundSpeed;
-    std::array<FloatType, 3> dtEdge;
     FloatType dtMin;
+    bool isViscosityActive = _config.isViscosityActive();
 
     if (_config.getTimeStepMethod() == TimeStepMethod::FIXED){
         dtMin = _config.getFixedTimeStep();
@@ -1077,25 +1077,68 @@ void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatTy
     }
 
     for (size_t i=0; i<_nPointsI; i++) {
-        for (size_t j=0; j<_nPointsJ; j++){
-            for (size_t k=0; k<_nPointsK; k++){
-                _mesh.getElementEdges(i, j, k, iEdge, jEdge, kEdge);
-                iDir = iEdge / iEdge.magnitude();
-                jDir = jEdge / jEdge.magnitude();
-                kDir = kEdge / kEdge.magnitude();
+        for (size_t j=0; j<_nPointsJ; j++) {
+            for (size_t k=0; k<_nPointsK; k++) {
+
+                _mesh.getElementEdges(i,j,k,iEdge,jEdge,kEdge);
+
+                FloatType dsI = iEdge.magnitude();
+                FloatType dsJ = jEdge.magnitude();
+                FloatType dsK = kEdge.magnitude();
+
+                iDir = iEdge / dsI;
+                jDir = jEdge / dsJ;
+                kDir = kEdge / dsK;
+
                 conservative = solution.at(i,j,k);
                 primitive = getPrimitiveVariablesFromConservative(conservative);
+
                 velocity(0) = primitive[1];
                 velocity(1) = primitive[2];
                 velocity(2) = primitive[3];
-                soundSpeed = _fluid->computeSoundSpeed_rho_u_et(primitive[0], velocity, primitive[4]);
 
-                dtEdge[0] = iEdge.magnitude() / (std::abs(velocity.dot(iDir))+soundSpeed);
-                dtEdge[1] = jEdge.magnitude() / (std::abs(velocity.dot(jDir))+soundSpeed);
-                dtEdge[2] = kEdge.magnitude() / (std::abs(velocity.dot(kDir))+soundSpeed);
+                rho = primitive[0];
+                temperature = _fluid->computeTemperature_rho_u_et(primitive[0], velocity, primitive[4]);
 
-                dtMin = *std::min_element(dtEdge.begin(), dtEdge.end());
-                timestep(i,j,k) = dtMin*cflMax;
+                FloatType a = _fluid->computeSoundSpeed_rho_u_et(
+                                primitive[0],
+                                velocity,
+                                primitive[4]
+                            );
+                
+                FloatType mu, mut;
+                if (isViscosityActive){
+                    mu = _fluid->computeMolecularDynamicViscosity(temperature);
+                    mut = _turbulenceModel->getEddyViscosity(rho, i, j, k);
+                }
+                else {
+                    mu = 0.0;
+                    mut = 0.0;
+                }
+                
+                FloatType nu  = mu  / rho;
+                FloatType nut = mut / rho;
+
+                FloatType ui = std::abs(velocity.dot(iDir));
+                FloatType uj = std::abs(velocity.dot(jDir));
+                FloatType uk = std::abs(velocity.dot(kDir));
+
+                FloatType lambdaConv =
+                    (ui + a)/dsI +
+                    (uj + a)/dsJ +
+                    (uk + a)/dsK;
+
+                FloatType invH2 =
+                    1.0/(dsI*dsI) +
+                    1.0/(dsJ*dsJ) +
+                    1.0/(dsK*dsK);
+
+                FloatType lambdaVisc =
+                    4.0 * (nu + nut) * invH2;
+
+                timestep(i,j,k) =
+                    cflMax /
+                    (lambdaConv + lambdaVisc);
             }
         }
     }
@@ -1454,14 +1497,15 @@ void Solver::computeViscousFluxResiduals(
     size_t ni = surfaces.sizeI(); 
     size_t nj = surfaces.sizeJ(); 
     size_t nk = surfaces.sizeK();
+    size_t dirFace = 0;
+    size_t stopFace = 0;
+    size_t il, ir, jl, jr, kl, kr;
     
     // Following the idea of Blazek, and assuming adiabatic walls, there is no viscous flux coming from boundaries
-    for (size_t iFace = 1; iFace < ni-1; ++iFace) {
-        for (size_t jFace = 1; jFace < nj-1; ++jFace) {
+    for (size_t iFace = 0; iFace < ni; ++iFace) {
+        for (size_t jFace = 0; jFace < nj; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
-                size_t dirFace = 0;
-                size_t stopFace = 0;
-
+                
                 switch (direction)
                 {
                 case (FluxDirection::I):
@@ -1480,62 +1524,71 @@ void Solver::computeViscousFluxResiduals(
                     throw std::runtime_error("Invalid FluxDirection.");
                 }
                 
-                if (dirFace == 0 || dirFace == stopFace) {
-                    continue; // skip k-boundaries for 3D cases, but work also for 2D
-                }  
-                else {
-                    Uleft = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
-                    Uright = solution.at(iFace, jFace, kFace);
-                    Uavg = (Uleft + Uright) * 0.5;
-
-                    uxGrad = (gradients.at(SolutionName::VELOCITY_X)(
-                        iFace-1*stepMask[0], 
-                        jFace-1*stepMask[1], 
-                        kFace-1*stepMask[2]) + 
-                        gradients.at(SolutionName::VELOCITY_X)(iFace, jFace, kFace)) * 0.5;
-                    
-                    uyGrad = (gradients.at(SolutionName::VELOCITY_Y)(
-                        iFace-1*stepMask[0], 
-                        jFace-1*stepMask[1], 
-                        kFace-1*stepMask[2]) + 
-                        gradients.at(SolutionName::VELOCITY_Y)(iFace, jFace, kFace)) * 0.5;
-
-                    uzGrad = (gradients.at(SolutionName::VELOCITY_Z)(
-                        iFace-1*stepMask[0], 
-                        jFace-1*stepMask[1], 
-                        kFace-1*stepMask[2]) + 
-                        gradients.at(SolutionName::VELOCITY_Z)(iFace, jFace, kFace)) * 0.5;
-                    
-                    tempGrad = (gradients.at(SolutionName::TEMPERATURE)(
-                        iFace-1*stepMask[0], 
-                        jFace-1*stepMask[1], 
-                        kFace-1*stepMask[2]) + 
-                        gradients.at(SolutionName::TEMPERATURE)(iFace, jFace, kFace)) * 0.5;
-                    
-                    muEddy = (
-                        _turbulenceModel->getEddyViscosity(solution.at(iFace, jFace, kFace)[0], iFace, jFace, kFace) +
-                        _turbulenceModel->getEddyViscosity(
-                            solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2])[0], 
-                            iFace-1*stepMask[0], 
-                            jFace-1*stepMask[1], 
-                            kFace-1*stepMask[2])
-                            ) * 0.5;
-                    
-                    surface = surfaces(iFace, jFace, kFace);
-                    flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
-                    
-                    residuals.add(
-                        iFace-1*stepMask[0], 
-                        jFace-1*stepMask[1], 
-                        kFace-1*stepMask[2], 
-                        flux * surface.magnitude());
-                    residuals.subtract(iFace, 
-                        jFace, 
-                        kFace, 
-                        flux * surface.magnitude());
-                
+                // select the right index of donor (l) and receiver (r) cells
+                if (dirFace==0){
+                    il = iFace;
+                    jl = jFace;
+                    kl = kFace;
+                    ir = iFace;
+                    jr = jFace;
+                    kr = kFace;
                 }
-            
+                else if (dirFace==stopFace){
+                    il = iFace - stepMask[0];
+                    jl = jFace - stepMask[1];
+                    kl = kFace - stepMask[2];
+                    ir = iFace - stepMask[0];
+                    jr = jFace - stepMask[1];
+                    kr = kFace - stepMask[2];
+                }
+                else {
+                    il = iFace - stepMask[0];
+                    jl = jFace - stepMask[1];
+                    kl = kFace - stepMask[2];
+                    ir = iFace;
+                    jr = jFace;
+                    kr = kFace;
+                }
+                
+                Uleft = solution.at(il, jl, kl);
+                Uright = solution.at(ir, jr, kr);
+                Uavg = (Uleft + Uright) * 0.5;
+
+                uxGrad = (
+                    gradients.at(SolutionName::VELOCITY_X)(il, jl, kl) + 
+                    gradients.at(SolutionName::VELOCITY_X)(ir, jr, kr)
+                    ) * 0.5;
+                
+                uyGrad = (
+                    gradients.at(SolutionName::VELOCITY_Y)(il, jl, kl) + 
+                    gradients.at(SolutionName::VELOCITY_Y)(ir, jr, kr)
+                    ) * 0.5;
+
+                uzGrad = (
+                    gradients.at(SolutionName::VELOCITY_Z)(il, jl, kl) + 
+                    gradients.at(SolutionName::VELOCITY_Z)(ir, jr, kr)
+                    ) * 0.5;
+                
+                tempGrad = (
+                    gradients.at(SolutionName::TEMPERATURE)(il, jl, kl) + 
+                    gradients.at(SolutionName::TEMPERATURE)(ir, jr, kr)
+                    ) * 0.5;
+                
+                muEddy = (
+                        _turbulenceModel->getEddyViscosity(solution.at(il, jl, kl)[0], il, jl, kl) +
+                        _turbulenceModel->getEddyViscosity(solution.at(ir, jr, kr)[0], ir, jr, kr)
+                        ) * 0.5;
+                
+                surface = surfaces(ir, jr, kr);
+                flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
+                
+                // the flux signs are inverted because the fluxes must be subtracted to build the residual
+                if (dirFace > 0){
+                    residuals.add(il, jl, kl, flux * surface.magnitude());
+                }
+                if (dirFace < stopFace){
+                    residuals.subtract(ir, jr, kr, flux * surface.magnitude());
+                }
             }
         }
     }
@@ -1568,7 +1621,7 @@ StateVector Solver::computeViscousFlux(
     FloatType kappaL = _fluid->computeThermalConductivity(muL);
     FloatType cp = _config.getFluidHeatCapacity();
     FloatType Prt = _config.getTurbulentPrandtlNumber();
-    FloatType kappaEddy = cp * muEddy / Prt;
+    FloatType kappaEddy = _turbulenceModel->getEddyThermalConductivity(muEddy, cp, Prt);
     
     // total flow quantities
     FloatType muTotal = muL + muEddy;

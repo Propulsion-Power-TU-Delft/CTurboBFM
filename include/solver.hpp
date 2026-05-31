@@ -10,6 +10,7 @@
 #include "greitzer_model.hpp"   
 #include "turbulence_model_base.hpp"
 #include "turbulence_model_sa.hpp"
+#include "turbulence_model_none.hpp"
 #include "config.hpp"
 #include "mesh.hpp"
 #include "fluid_base.hpp"

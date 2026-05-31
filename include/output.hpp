@@ -48,7 +48,7 @@ protected:
 
     void updateSecondaryFields();
 
-    void updateTurbulenceFields();
+    void updateViscousFields();
 
     Vector3D computeWallShearStress(Boundary boundary, size_t i, size_t j, size_t k);
 
@@ -74,6 +74,7 @@ protected:
     bool _isUnsteadyOutput;
     bool _isBfmActive;
     bool _isTurbulenceActive;
+    bool _isViscosityActive;
     
     std::string _outputVolumeDirectory = "Volume_CSV";
     OutputFieldsType _outputFieldsType;

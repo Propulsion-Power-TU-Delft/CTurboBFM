@@ -68,6 +68,8 @@ protected:
     
     void updateSolution(const Matrix3D<FloatType> &residual, const Matrix3D<FloatType> &dt);
 
+    FloatType getEddyThermalConductivity(const FloatType &mu, const FloatType &cp, const FloatType &Pr) const override {return mu*cp/Pr;}
+
 private:
     const FloatType _cb1 = 0.1355;
     const FloatType _cb2 = 0.622;

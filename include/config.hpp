@@ -286,5 +286,5 @@ public:
 
     FloatType getSutherlandSconstant() const {return parseFloat("FLUID_SUTHERLAND_S");}
 
-    FloatType getTurbulentPrandtlNumber() const {return parseFloat("TURBULENT_PRANDTL_NUMBER");}
+    FloatType getTurbulentPrandtlNumber() const {return parseFloat("TURBULENT_PRANDTL_NUMBER", 0.86);}
 };
