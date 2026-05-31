@@ -917,7 +917,7 @@ void Solver::solve(){
         // runge-kutta steps
         preprocessSolution(solutionTmp);
         for (const auto &integrationCoeff: timeIntegrationCoeffs){
-            // updateTurbulenceSolution(solutionTmp, solutionGradTmp, integrationCoeff, timestep);
+            updateTurbulenceSolution(solutionTmp, solutionGradTmp, integrationCoeff, timestep);
             computeSolutionGradient(solutionTmp, solutionGradTmp);
             computeResiduals(solutionTmp, solutionGradTmp, it, _time.back(), timestep, residuals);
             updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
