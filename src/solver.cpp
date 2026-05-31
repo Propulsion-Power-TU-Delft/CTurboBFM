@@ -154,10 +154,10 @@ void Solver::buildBoundaryDataStructures() {
                 throw std::runtime_error("Radial equilibrium only supported to the last i-position");
             };
 
-            size_t nPoints = bound.j_max - bound.j_min;
-            if (nPoints <= 0) {
+            if (bound.j_max <= bound.j_min) {
                 throw std::runtime_error("Invalid boundary indices for radial equilibrium patch: " + bound.name);
             }
+            size_t nPoints = bound.j_max - bound.j_min;
             
             for (size_t j=bound.j_min; j<bound.j_max; j++){
                 FloatType radius = _mesh.getRadius(bound.i_max-1, j, 0);
@@ -195,6 +195,7 @@ void Solver::buildBoundaryDataStructures() {
 }
 
 void Solver::buildBoundaryFluxes() {
+    size_t radialProfileIdx = 0;
     for (auto& bound : _boundaries) {
         if (bound.type == BoundaryType::INVISCID_WALL || bound.type == BoundaryType::NO_SLIP_WALL){
             bound.fluxMethod = std::make_unique<BoundaryInviscidWall>(
@@ -232,24 +233,24 @@ void Solver::buildBoundaryFluxes() {
         }
         else if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM){
             bound.fluxMethod = std::make_unique<BoundaryOutletRadialEquilibrium>(
-                _config, 
-                _mesh, 
-                *_fluid, 
-                _radialEquilibriumProfiles.back().pressure);
+                _config,
+                _mesh,
+                *_fluid,
+                _radialEquilibriumProfiles[radialProfileIdx++].pressure);
         }
         else if (bound.type == BoundaryType::OUTLET_SUPERSONIC){
             bound.fluxMethod = std::make_unique<BoundaryOutletSupersonic>(
-                _config, 
-                _mesh, 
-                *_fluid, 
+                _config,
+                _mesh,
+                *_fluid,
                 bound.values);
         }
         else if (bound.type == BoundaryType::THROTTLE){
             bound.fluxMethod = std::make_unique<BoundaryOutletThrottle>(
-                _config, 
-                _mesh, 
-                *_fluid, 
-                _radialEquilibriumProfiles.back().pressure);
+                _config,
+                _mesh,
+                *_fluid,
+                _radialEquilibriumProfiles[radialProfileIdx++].pressure);
         }
         else if (bound.type == BoundaryType::WEDGE){
             bound.fluxMethod = std::make_unique<BoundaryFake>(
@@ -681,13 +682,12 @@ void Solver::initializeSolutionFromRestart(){
             axisymmetricRestart(inputDensity, inputVelX, inputVelY, inputVelZ, inputTemperature);
         }
         else if (NI == _nPointsI && NJ == _nPointsJ && _config.getRestartType()!="axisymmetric") {
-            std::cerr << "Restart file dimensions (I,J) coincides with solver dimensions, but K does not." << 
-                        "If you want to restart in axisymmetric mode, specify RESTART_TYPE=axisymmetric\n";
-            exit(1);
+            throw std::runtime_error(
+                "Restart file dimensions (I,J) match solver but K does not. "
+                "To restart in axisymmetric mode specify RESTART_TYPE=axisymmetric.");
         }
         else {
-            std::cerr << "Restart file dimensions do not match solver dimensions.\n";
-            exit(1);
+            throw std::runtime_error("Restart file dimensions do not match solver dimensions.");
         }
     }
     else {
@@ -788,7 +788,7 @@ void Solver::readRestartFile(
 
     std::ifstream file(restartFileName);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file.\n";
+        throw std::runtime_error("Failed to open restart file: " + restartFileName);
     }
 
     std::string line;
@@ -825,12 +825,13 @@ void Solver::readRestartFile(
     size_t iTotEnergy = columnIndex.at("Total Energy");
 
     // these could also not be there, not a problem
-    size_t iForceInviscidX{1000};
-    size_t iForceInviscidY{1000};
-    size_t iForceInviscidZ{1000};
-    size_t iForceViscousX{1000};
-    size_t iForceViscousY{1000};
-    size_t iForceViscousZ{1000};
+    constexpr size_t UNSET = std::numeric_limits<size_t>::max();
+    size_t iForceInviscidX{UNSET};
+    size_t iForceInviscidY{UNSET};
+    size_t iForceInviscidZ{UNSET};
+    size_t iForceViscousX{UNSET};
+    size_t iForceViscousY{UNSET};
+    size_t iForceViscousZ{UNSET};
     if (isBfmSimulation){
         iForceInviscidX = columnIndex["Inviscid Body Force X"];
         iForceInviscidY = columnIndex["Inviscid Body Force Y"];
@@ -862,13 +863,13 @@ void Solver::readRestartFile(
             totalEnergy);
 
         if (isBfmSimulation) {
-            inputForceInviscid(i,j,k).x() = (iForceInviscidX != 0) ? row[iForceInviscidX] : 0.0;
-            inputForceInviscid(i,j,k).y() = (iForceInviscidY != 0) ? row[iForceInviscidY] : 0.0;
-            inputForceInviscid(i,j,k).z() = (iForceInviscidZ != 0) ? row[iForceInviscidZ] : 0.0;
+            inputForceInviscid(i,j,k).x() = (iForceInviscidX != UNSET) ? row[iForceInviscidX] : 0.0;
+            inputForceInviscid(i,j,k).y() = (iForceInviscidY != UNSET) ? row[iForceInviscidY] : 0.0;
+            inputForceInviscid(i,j,k).z() = (iForceInviscidZ != UNSET) ? row[iForceInviscidZ] : 0.0;
 
-            inputForceViscous(i,j,k).x()  = (iForceViscousX != 0) ? row[iForceViscousX] : 0.0;
-            inputForceViscous(i,j,k).y()  = (iForceViscousY != 0) ? row[iForceViscousY] : 0.0;
-            inputForceViscous(i,j,k).z()  = (iForceViscousZ != 0) ? row[iForceViscousZ] : 0.0;
+            inputForceViscous(i,j,k).x()  = (iForceViscousX  != UNSET) ? row[iForceViscousX]  : 0.0;
+            inputForceViscous(i,j,k).y()  = (iForceViscousY  != UNSET) ? row[iForceViscousY]  : 0.0;
+            inputForceViscous(i,j,k).z()  = (iForceViscousZ  != UNSET) ? row[iForceViscousZ]  : 0.0;
         }
 
         // Update indices: k fastest, then j, then i
@@ -1167,9 +1168,9 @@ void Solver::updateMassFlows(const FlowSolution&solution){
     
     for (auto& bcIndex: bcIndices){
         Matrix2D<Vector3D> surface = _mesh.getMeshBoundary(bcIndex);
-        Matrix2D<FloatType> rhoUX = (_conservativeSolution._rhoU).getBoundarySlice(bcIndex);
-        Matrix2D<FloatType> rhoUV = (_conservativeSolution._rhoV).getBoundarySlice(bcIndex);
-        Matrix2D<FloatType> rhoUW = (_conservativeSolution._rhoW).getBoundarySlice(bcIndex);
+        Matrix2D<FloatType> rhoUX = solution._rhoU.getBoundarySlice(bcIndex);
+        Matrix2D<FloatType> rhoUV = solution._rhoV.getBoundarySlice(bcIndex);
+        Matrix2D<FloatType> rhoUW = solution._rhoW.getBoundarySlice(bcIndex);
         _massFlows[bcIndex] = computeSurfaceIntegral(surface, rhoUX, rhoUV, rhoUW);
     }
     
@@ -1616,16 +1617,16 @@ StateVector Solver::computeViscousFlux(
     // flow quantities
     FloatType muL = _fluid->computeMolecularDynamicViscosity(temperature);
     FloatType muEddy = eddyViscosity;
-    FloatType secondaryViscosity = -2.0 / 3.0 * muL;         
-    
+
     FloatType kappaL = _fluid->computeThermalConductivity(muL);
     FloatType cp = _config.getFluidHeatCapacity();
     FloatType Prt = _config.getTurbulentPrandtlNumber();
     FloatType kappaEddy = _turbulenceModel->getEddyThermalConductivity(muEddy, cp, Prt);
-    
+
     // total flow quantities
     FloatType muTotal = muL + muEddy;
     FloatType kappaTotal = kappaL + kappaEddy;
+    FloatType secondaryViscosity = -2.0 / 3.0 * muTotal;
     
     ViscousStressTensor tau = computeViscousStressTensor(muTotal, secondaryViscosity, velXGrad, velYGrad, velZGrad);
     Vector3D tauX = Vector3D(tau.xx, tau.xy, tau.xz);
@@ -1934,7 +1935,7 @@ void Solver::computeSourceResiduals(
                     omega = _mesh.getInputFields(InputField::RPM, i, j, k) * 2 * M_PI / 60;
                     FloatType scalingFactor = _config.getRotationalSpeedScalingFactor(timePhysical);
                     omega *= scalingFactor;
-                    gongSource = computeGongSource(radius, theta, omega, i, j, k, volume);
+                    gongSource = computeGongSource(radius, theta, omega, i, j, k, volume, solution);
                     residuals.subtract(i, j, k, gongSource);
                 }
 
@@ -2054,6 +2055,7 @@ void Solver::checkConvergence(bool &exitLoop, bool &isSteady) const {
     if (current[0] < initial[0] - _residualsDropConvergence &&
         current[1] < initial[1] - _residualsDropConvergence &&
         current[2] < initial[2] - _residualsDropConvergence &&
+        current[3] < initial[3] - _residualsDropConvergence &&
         current[4] < initial[4] - _residualsDropConvergence) {
         std::cout << "\nConvergence reached at iteration " << _logResiduals.size() << std::endl;
         std::cout << std::endl;
@@ -2111,13 +2113,14 @@ void Solver::updateTurbulenceSolution(
 
 
 StateVector Solver::computeGongSource(
-    const FloatType& radius, 
-    const FloatType& theta, 
-    const FloatType& omega, 
-    const size_t i, 
-    const size_t j, 
-    const size_t k, 
-    const FloatType& volume) const{
+    const FloatType& radius,
+    const FloatType& theta,
+    const FloatType& omega,
+    const size_t i,
+    const size_t j,
+    const size_t k,
+    const FloatType& volume,
+    const FlowSolution& solution) const{
 
     if (std::abs(omega)<1E-3){
         // stator blades -> no source term 
@@ -2131,35 +2134,35 @@ StateVector Solver::computeGongSource(
     StateVector U0, U1, U2;
     if (omega > 0) {
         if (k==0){ // first point
-            U0 = _conservativeSolution.at(i, j, k);
-            U1 = _conservativeSolution.at(i, j, _nPointsK-2);
-            U2 = _conservativeSolution.at(i, j, _nPointsK-3);
+            U0 = solution.at(i, j, k);
+            U1 = solution.at(i, j, _nPointsK-2);
+            U2 = solution.at(i, j, _nPointsK-3);
         }
         else if (k==1){ // second point
-            U0 = _conservativeSolution.at(i, j, k);
-            U1 = _conservativeSolution.at(i, j, 0);
-            U2 = _conservativeSolution.at(i, j, _nPointsK-2);
+            U0 = solution.at(i, j, k);
+            U1 = solution.at(i, j, 0);
+            U2 = solution.at(i, j, _nPointsK-2);
         }
         else { // internals
-            U0 = _conservativeSolution.at(i, j, k);
-            U1 = _conservativeSolution.at(i, j, k-1);
-            U2 = _conservativeSolution.at(i, j, k-2);
+            U0 = solution.at(i, j, k);
+            U1 = solution.at(i, j, k-1);
+            U2 = solution.at(i, j, k-2);
         }
     } else {
         if (k==_nPointsK-1){ // last point
-            U0 = _conservativeSolution.at(i, j, 0);
-            U1 = _conservativeSolution.at(i, j, 1);
-            U2 = _conservativeSolution.at(i, j, 2);
+            U0 = solution.at(i, j, 0);
+            U1 = solution.at(i, j, 1);
+            U2 = solution.at(i, j, 2);
         }
         else if (k==_nPointsK-2){ // second to last
-            U0 = _conservativeSolution.at(i, j, k);
-            U1 = _conservativeSolution.at(i, j, 0);
-            U2 = _conservativeSolution.at(i, j, 1);
+            U0 = solution.at(i, j, k);
+            U1 = solution.at(i, j, 0);
+            U2 = solution.at(i, j, 1);
         }
         else {
-            U0 = _conservativeSolution.at(i, j, k);
-            U1 = _conservativeSolution.at(i, j, k+1);
-            U2 = _conservativeSolution.at(i, j, k+2);
+            U0 = solution.at(i, j, k);
+            U1 = solution.at(i, j, k+1);
+            U2 = solution.at(i, j, k+2);
         }
     }
 

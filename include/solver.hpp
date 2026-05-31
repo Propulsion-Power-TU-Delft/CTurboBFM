@@ -46,11 +46,11 @@ public:
 
     void solve();
 
-    inline const Matrix3D<FloatType> getWallDistance() const {
+    inline const Matrix3D<FloatType>& getWallDistance() const {
         return _wallDistance;
     }
 
-    inline const Matrix3D<Vector3D> getVertices() const {
+    inline Matrix3D<Vector3D> getVertices() const {
         return _mesh.getVertices();
     }
 
@@ -233,13 +233,14 @@ private:
      * in the direction of shaft rotation
     */
     StateVector computeGongSource(
-        const FloatType& radius, 
-        const FloatType& theta, 
-        const FloatType& omega, 
-        const size_t i, 
-        const size_t j, 
-        const size_t k, 
-        const FloatType& volume) const;
+        const FloatType& radius,
+        const FloatType& theta,
+        const FloatType& omega,
+        const size_t i,
+        const size_t j,
+        const size_t k,
+        const FloatType& volume,
+        const FlowSolution& solution) const;
     
     /** @brief set the momentum vector on the nodes belonging to viscous walls */
     void setMomentumSolutionOnViscousWalls(
@@ -305,9 +306,9 @@ private:
 
     size_t _residualsDropConvergence {16};
 
-    FloatType _periodicityTranslation;
-    FloatType _periodicityAngleDeg;
-    FloatType _periodicityAngleRad;
+    FloatType _periodicityTranslation{0.0};
+    FloatType _periodicityAngleDeg{0.0};
+    FloatType _periodicityAngleRad{0.0};
 
     FlowSolution _conservativeSolution; 
     std::map<SolutionName, Matrix3D<Vector3D>> _solutionGrad;
