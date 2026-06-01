@@ -98,4 +98,5 @@ private:
     Matrix3D<Vector3D> _nuHatGrad;
     Matrix3D<FloatType> _fv1;
     Matrix3D<FloatType> _initNuHat;
+    const FloatType _farfieldNuHatScaling = 5.0;
 };

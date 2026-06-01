@@ -41,7 +41,7 @@ void TurbulenceModelSA::initializeFromZero() {
     for (size_t i = 0; i < _ni; ++i) {
         for (size_t j = 0; j < _nj; ++j) {
             for (size_t k = 0; k < _nk; ++k) {
-                _initNuHat(i, j, k) = 0.1 * initNu;
+                _initNuHat(i, j, k) = _farfieldNuHatScaling * initNu;
             }
         }
     }
@@ -60,7 +60,7 @@ void TurbulenceModelSA::initializeFromRestartFile() {
                     {primitive[1], primitive[2], primitive[3]}, 
                     primitive[4]);
                 FloatType nu = _fluid.computeMolecularDynamicViscosity(temperature) / primitive[0];
-                _initNuHat(i, j, k) = 0.1 * nu;
+                _initNuHat(i, j, k) = _farfieldNuHatScaling * nu;
             }
         }
     }
@@ -224,7 +224,7 @@ void TurbulenceModelSA::updateMeanFlowTerms(const FlowSolution &sol) {
                     velocityZ(i, j, k)},
                     totalEnergy(i, j, k));
                 
-                _nuLaminar(i, j, k) = _fluid.computeMolecularDynamicViscosity(temperature);
+                _nuLaminar(i, j, k) = _fluid.computeMolecularDynamicViscosity(temperature) / density(i, j, k);
             }
         }
     }
@@ -281,10 +281,7 @@ void TurbulenceModelSA::computeFluxContribution(
                     throw std::runtime_error("Invalid FluxDirection.");
                 }
                 
-                if (dirFace == 0) { // starting boundary interfaces
-                    continue;
-                }
-                else if (dirFace == stopFace) { // ending boundary interfaces
+                if (dirFace == 0 || dirFace == stopFace) { // starting boundary interfaces
                     continue;
                 } 
                 else { // flux across internal faces

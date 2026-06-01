@@ -1536,7 +1536,7 @@ void Solver::computeViscousFluxResiduals(
                     throw std::runtime_error("Invalid FluxDirection.");
                 }
                 
-                if (dirFace==0 || dirFace==stopFace-1){
+                if (dirFace==0 || dirFace==stopFace){
                     continue;
                 }
                 else {
