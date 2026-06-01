@@ -86,7 +86,8 @@ void TurbulenceModelSA::updateBoundaryValues(const FlowSolution &sol) {
         else if (boundary.type == BoundaryType::OUTLET || 
             boundary.type == BoundaryType::RADIAL_EQUILIBRIUM || 
             boundary.type == BoundaryType::THROTTLE ||
-            boundary.type == BoundaryType::OUTLET_SUPERSONIC){ 
+            boundary.type == BoundaryType::OUTLET_SUPERSONIC ||
+            boundary.type == BoundaryType::INVISCID_WALL){ 
             enforceOutletCondition(boundary, sol);
         }
         else {
