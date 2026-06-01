@@ -1377,7 +1377,7 @@ void Solver::computeAdvectionFluxResiduals(
                 
                 if (dirFace == 0) { // starting boundary fluxes
                     Uinternal = solution.at(iFace, jFace, kFace);
-                    surface = -surfaces(iFace, jFace, kFace);
+                    surface = -surfaces(iFace, jFace, kFace); // outward point
                     midPoint = midPoints(iFace, jFace, kFace);
                     flux = boundaryConditionMap(iFace, jFace, kFace)->computeBoundaryFlux(
                         Uinternal, 
@@ -1390,7 +1390,7 @@ void Solver::computeAdvectionFluxResiduals(
                 }
                 else if (dirFace == stopFace) { // ending boundary fluxes
                     Uinternal = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
-                    surface = surfaces(iFace, jFace, kFace);
+                    surface = surfaces(iFace, jFace, kFace); // outward pointing
                     midPoint = midPoints(iFace, jFace, kFace);
                     size_t ii = iFace-1*stepMask[0];
                     size_t jj = jFace-1*stepMask[1];
@@ -1458,7 +1458,7 @@ void Solver::computeAdvectionFluxResiduals(
                         }
                     }
         
-                    surface = surfaces(iFace, jFace, kFace);
+                    surface = surfaces(iFace, jFace, kFace); // outward pointing with respect to the left cell
                     flux = _advection->computeFlux(Uleftleft, Uleft, Uright, Urightright, surface);
                     residuals.add(
                         iFace-1*stepMask[0], 
@@ -1471,8 +1471,6 @@ void Solver::computeAdvectionFluxResiduals(
                         kFace, 
                         flux * surface.magnitude());
                 }
-
-            
             }
         }
     }
@@ -1583,12 +1581,12 @@ void Solver::computeViscousFluxResiduals(
                 surface = surfaces(ir, jr, kr);
                 flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
                 
-                // the flux signs are inverted because the fluxes must be subtracted to build the residual
+                // the (-1.0) factor is needed because of the definition of R = Fc - Fv
                 if (dirFace > 0){
-                    residuals.add(il, jl, kl, flux * surface.magnitude());
+                    residuals.subtract(il, jl, kl, flux * surface.magnitude() * (-1.0));
                 }
                 if (dirFace < stopFace){
-                    residuals.subtract(ir, jr, kr, flux * surface.magnitude());
+                    residuals.add(ir, jr, kr, flux * surface.magnitude() * (-1.0));
                 }
             }
         }
@@ -1647,7 +1645,7 @@ StateVector Solver::computeViscousFlux(
     flux[3] = tauZ.dot(surfDir);
     flux[4] = thetaX*surfDir.x() + thetaY*surfDir.y() + thetaZ*surfDir.z();
 
-    return flux * (-1.0); // minus due to viscous flux positive considered on the left hand side of equations
+    return flux; 
 }
 
 

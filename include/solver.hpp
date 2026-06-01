@@ -116,7 +116,9 @@ private:
 
     FloatType computeMinimumDistanceToBoundary(size_t i, size_t j, size_t k, Boundary boundary) const;
 
-    /** @brief compute the global residual, defined as V*dU/dt + R = 0 -> R = fluxes - source terms */
+    /** @brief compute the global residual, defined as V*dU/dt + R = 0 -> R = fluxes - source terms 
+     * R = convective fluxes - viscous fluxes - source terms
+    */
     void computeResiduals(
         FlowSolution& solution, 
         const std::map<SolutionName, Matrix3D<Vector3D>>& solutionGrad, 
@@ -132,7 +134,8 @@ private:
         size_t itCounter, 
         FlowSolution &residuals) const;
     
-    /** @brief compute the advection flux contribution to the residuals */
+    /** @brief compute the advection flux contribution to the residuals 
+    */
     void computeViscousFluxResiduals(
         FluxDirection direction, 
         const FlowSolution& solution, 
@@ -185,6 +188,7 @@ private:
     
     /** @brief compute all the source terms and apply them to the residuals 
      * Contains the BFM source terms, axisymmetric geometric terms, and Gong BF formulation terms
+     * The negative signs are needed because the source terms must be subtracted to build the residuals R = Fc - Fv - S
     */
     void computeSourceResiduals(
         FlowSolution& solution, 
@@ -250,7 +254,10 @@ private:
     
     /** @brief perform some preprocessing of the solution */
     void preprocessSolution(FlowSolution &solution, bool updateRadialProf = true);
-
+    
+    /** @brief compute the viscous flux 
+     * Follow the notation of the Blazek book, pag 17
+    */
     StateVector computeViscousFlux(
         const StateVector& conservative, 
         const Vector3D& velXGrad, 
