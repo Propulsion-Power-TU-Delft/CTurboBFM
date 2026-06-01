@@ -45,7 +45,8 @@ Output::Output(
     const TurbulenceModelBase &turbulenceModel,
     const Matrix3D<Vector3D> &inviscidForce, 
     const Matrix3D<Vector3D> &viscousForce,
-    const Matrix3D<FloatType> &deviationAngle)
+    const Matrix3D<FloatType> &deviationAngle,
+    const Matrix3D<FloatType> &wallDistance)
     : _config(config), 
     _mesh(mesh), 
     _solution(solution), 
@@ -58,7 +59,8 @@ Output::Output(
     _surfacesK(mesh.getSurfacesK()),
     _inviscidForce(inviscidForce), 
     _viscousForce(viscousForce), 
-    _deviationAngle(deviationAngle) {    
+    _deviationAngle(deviationAngle),
+    _wallDistance(wallDistance) {    
 
     std::filesystem::create_directory(_outputVolumeDirectory);
     _outputFieldsType = _config.getOutputFieldsType();
@@ -247,6 +249,34 @@ void Output::updateViscousFields() {
     for (auto& bound: _boundaries) {
         if (bound.type == BoundaryType::NO_SLIP_WALL) {
             BoundaryNodesIndexRange range = fetchBoundaryNodesIndexRange(bound, _ni, _nj, _nk);
+            BoundaryOrientation orientation = bound.orientation;
+            std::array<int, 3> step = {0, 0, 0};
+            if (orientation == BoundaryOrientation::I_START)
+            {
+                step[0] = 1;
+            }
+            else if (orientation == BoundaryOrientation::I_END)
+            {
+                step[0] = -1;
+            }
+            else if (orientation == BoundaryOrientation::J_START)
+            {
+                step[1] = 1;
+            }
+            else if (orientation == BoundaryOrientation::J_END)
+            {
+                step[1] = -1;
+            }
+            else if (orientation == BoundaryOrientation::K_START)
+            {
+                step[2] = 1;
+            }
+            else if (orientation == BoundaryOrientation::K_END)
+            {
+                step[2] = -1;
+            }
+
+            FloatType d = 0.0;
             for (size_t i = range.iStart; i < range.iLast; ++i) {
                 for (size_t j = range.jStart; j < range.jLast; ++j) {
                     for (size_t k = range.kStart; k < range.kLast; ++k) {
@@ -257,9 +287,10 @@ void Output::updateViscousFields() {
                         _outputFields[WALL_SHEAR_STRESS_Y](i, j, k) = tauWall.y();
                         _outputFields[WALL_SHEAR_STRESS_Z](i, j, k) = tauWall.z();
 
+                        d = _wallDistance(i+step[0], j+step[1], k+step[2]) - _wallDistance(i, j, k);
                         _outputFields[Y_PLUS](i, j, k) = std::sqrt(
-                            tauWall.magnitude() / _outputFields[DENSITY](i, j, k)
-                        );
+                            tauWall.magnitude() * _outputFields[DENSITY](i, j, k)
+                            ) * d / _outputFields[MOLECULAR_VISCOSITY](i, j, k);
                     }
                 }
             }

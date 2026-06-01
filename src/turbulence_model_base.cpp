@@ -4,11 +4,14 @@ TurbulenceModelBase::TurbulenceModelBase(
     const Config &config, 
     const FluidBase &fluid, 
     const Mesh &mesh, 
-    const std::vector<Boundary> &boundaries) 
+    const std::vector<Boundary> &boundaries,
+    const FlowSolution &initialSolution
+) 
     : _config(config), 
     _fluid(fluid), 
     _mesh(mesh), 
-    _boundaries(boundaries) {
+    _boundaries(boundaries),
+    _initialSolution(initialSolution) {
         
         _ni = _mesh.getNumberPointsI();
         _nj = _mesh.getNumberPointsJ();

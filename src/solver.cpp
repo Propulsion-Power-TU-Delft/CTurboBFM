@@ -539,10 +539,22 @@ void Solver::buildTurbulenceModel(){
     _isTurbulenceActive = _config.isTurbulenceActive();
     TurbulenceModel turbulenceModel = _config.getTurbulenceModel();
     if (turbulenceModel == TurbulenceModel::SPALART_ALLMARAS) {
-        _turbulenceModel = std::make_unique<TurbulenceModelSA>(_config, *_fluid, _mesh, _boundaries, _wallDistance);
+        _turbulenceModel = std::make_unique<TurbulenceModelSA>(
+            _config,
+            *_fluid, 
+            _mesh, 
+            _boundaries, 
+            _wallDistance, 
+            _conservativeSolution);
     }
     else if (turbulenceModel == TurbulenceModel::NONE) {
-        _turbulenceModel = std::make_unique<TurbulenceModelNone>(_config, *_fluid, _mesh, _boundaries, _wallDistance);
+        _turbulenceModel = std::make_unique<TurbulenceModelNone>(
+            _config, 
+            *_fluid, 
+            _mesh, 
+            _boundaries, 
+            _wallDistance, 
+            _conservativeSolution);
     }
     else {
         throw std::runtime_error("Unsupported turbulence model selected.");
@@ -612,7 +624,8 @@ void Solver::buildOutputStructure(){
         *_turbulenceModel,
         _inviscidForce, 
         _viscousForce, 
-        _deviationAngle);
+        _deviationAngle,
+        _wallDistance);
 }
 
 void Solver::initializeSolutionFromScratch(){
@@ -1523,24 +1536,8 @@ void Solver::computeViscousFluxResiduals(
                     throw std::runtime_error("Invalid FluxDirection.");
                 }
                 
-                // select the right index of donor (l) and receiver (r) cells
-                if (dirFace==0){
-                    il = iFace;
-                    jl = jFace;
-                    kl = kFace;
-                    ir = iFace;
-                    jr = jFace;
-                    kr = kFace;
-                    surface = -surfaces(ir, jr, kr); // outward pointing to the first cell
-                }
-                else if (dirFace==stopFace){
-                    il = iFace - stepMask[0];
-                    jl = jFace - stepMask[1];
-                    kl = kFace - stepMask[2];
-                    ir = iFace - stepMask[0];
-                    jr = jFace - stepMask[1];
-                    kr = kFace - stepMask[2];
-                    surface = surfaces(ir, jr, kr); // outward pointing to the last cell
+                if (dirFace==0 || dirFace==stopFace-1){
+                    continue;
                 }
                 else {
                     il = iFace - stepMask[0];
@@ -1582,14 +1579,8 @@ void Solver::computeViscousFluxResiduals(
                         ) * 0.5;
                 
                 flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
-                
-                if (dirFace == 0 || dirFace == stopFace){
-                    continue;
-                }
-                else {
-                    residuals.add(il, jl, kl, flux * surface.magnitude() * (-1.0));
-                    residuals.subtract(ir, jr, kr, flux * surface.magnitude() * (-1.0));
-                }
+                residuals.add(il, jl, kl, flux * surface.magnitude() * (-1.0));
+                residuals.subtract(ir, jr, kr, flux * surface.magnitude() * (-1.0));
             }
         }
     }
@@ -1626,7 +1617,7 @@ StateVector Solver::computeViscousFlux(
     // total flow quantities
     FloatType muTotal = muL + muEddy;
     FloatType kappaTotal = kappaL + kappaEddy;
-    FloatType secondaryViscosity = -2.0 / 3.0 * muTotal;
+    FloatType secondaryViscosity = -2.0 / 3.0 * muL;
     
     ViscousStressTensor tau = computeViscousStressTensor(muTotal, secondaryViscosity, velXGrad, velYGrad, velZGrad);
     Vector3D tauX = Vector3D(tau.xx, tau.xy, tau.xz);

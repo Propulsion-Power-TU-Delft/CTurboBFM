@@ -5,8 +5,9 @@ TurbulenceModelSA::TurbulenceModelSA(
     const FluidBase &fluid, 
     const Mesh &mesh, 
     const std::vector<Boundary> &boundaries,
-    const Matrix3D<FloatType> &wallDistance) 
-    : TurbulenceModelBase(config, fluid, mesh, boundaries), 
+    const Matrix3D<FloatType> &wallDistance,
+    const FlowSolution &initialSolution) 
+    : TurbulenceModelBase(config, fluid, mesh, boundaries, initialSolution), 
     _wallDistance(wallDistance) {
 
         setupModelEquations();
@@ -18,13 +19,20 @@ void TurbulenceModelSA::setupModelEquations() {
     _nuHatGrad.resize(_ni, _nj, _nk);
     _nuLaminar.resize(_ni, _nj, _nk);
     _fv1.resize(_ni, _nj, _nk);
+    _initNuHat.resize(_ni, _nj, _nk);
 }
 
 void TurbulenceModelSA::setupInitialValues() {
-    // if (_config.restartSolution()) {
-    //     throw std::runtime_error("Restart is not supported yet for SA turbulence model.");
-    // }
+    if (_config.restartSolution()) {
+        initializeFromRestartFile();
+    }
+    else{
+        initializeFromZero();
+    }
 
+}
+
+void TurbulenceModelSA::initializeFromZero() {
     FloatType initTemperature = _config.getInitTemperature();
     FloatType initPressure = _config.getInitPressure();
     FloatType initDensity = _fluid.computeDensity_p_T(initPressure, initTemperature);
@@ -33,11 +41,33 @@ void TurbulenceModelSA::setupInitialValues() {
     for (size_t i = 0; i < _ni; ++i) {
         for (size_t j = 0; j < _nj; ++j) {
             for (size_t k = 0; k < _nk; ++k) {
-                _nuHat(i, j, k) = 0.1 * initNu;
+                _initNuHat(i, j, k) = 0.1 * initNu;
             }
         }
     }
+    _nuHat = _initNuHat;
 }
+
+void TurbulenceModelSA::initializeFromRestartFile() {
+
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+                StateVector conservative = _initialSolution.at(i, j, k);
+                StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
+                FloatType temperature = _fluid.computeTemperature_rho_u_et(
+                    primitive[0], 
+                    {primitive[1], primitive[2], primitive[3]}, 
+                    primitive[4]);
+                FloatType nu = _fluid.computeMolecularDynamicViscosity(temperature) / primitive[0];
+                _initNuHat(i, j, k) = 0.1 * nu;
+            }
+        }
+    }
+    _nuHat = _initNuHat;
+}
+
+
 
 void TurbulenceModelSA::updateBoundaryValues(const FlowSolution &sol) {
     
@@ -51,7 +81,7 @@ void TurbulenceModelSA::updateBoundaryValues(const FlowSolution &sol) {
             boundary.type == BoundaryType::INLET || 
             boundary.type == BoundaryType::INLET_2D || 
             boundary.type == BoundaryType::INLET_SUPERSONIC){
-            continue; // the initial value is simply left as it is
+            enforceInletCondition(boundary, sol);
         }
         else if (boundary.type == BoundaryType::OUTLET || 
             boundary.type == BoundaryType::RADIAL_EQUILIBRIUM || 
@@ -60,7 +90,7 @@ void TurbulenceModelSA::updateBoundaryValues(const FlowSolution &sol) {
             enforceOutletCondition(boundary, sol);
         }
         else {
-            continue; // do nothing for other boundary types... should be ok
+            continue;
         }
     }
 }
@@ -124,6 +154,20 @@ void TurbulenceModelSA::enforceOutletCondition(const Boundary& boundary, const F
         for (size_t j = range.jStart; j < range.jLast; ++j) {
             for (size_t k = range.kStart; k < range.kLast; ++k) {
                 _nuHat(i, j, k) = _nuHat(i + donorStepI, j + donorStepJ, k + donorStepK);
+            }
+        }
+    }
+}
+
+void TurbulenceModelSA::enforceInletCondition(const Boundary& boundary, const FlowSolution &sol) {
+
+    BoundaryNodesIndexRange range = fetchBoundaryNodesIndexRange(boundary, _ni, _nj, _nk);
+
+    // inlet values same of the initial solution (or restart solution)
+    for (size_t i = range.iStart; i < range.iLast; ++i) {
+        for (size_t j = range.jStart; j < range.jLast; ++j) {
+            for (size_t k = range.kStart; k < range.kLast; ++k) {
+                _nuHat(i, j, k) = _initNuHat(i, j, k);
             }
         }
     }
@@ -214,8 +258,9 @@ void TurbulenceModelSA::computeFluxContribution(
     size_t dirFace = 0;
     size_t stopFace = 0;
     FloatType advFlux, viscFlux;
-    for (size_t iFace = 0; iFace < ni; ++iFace) {
-        for (size_t jFace = 0; jFace < nj; ++jFace) {
+    
+    for (size_t iFace = 1; iFace < ni-1; ++iFace) {
+        for (size_t jFace = 1; jFace < nj-1; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
                 
                 switch (direction)
@@ -237,30 +282,10 @@ void TurbulenceModelSA::computeFluxContribution(
                 }
                 
                 if (dirFace == 0) { // starting boundary interfaces
-                    surface = surfaces(iFace, jFace, kFace);
-                    advFlux = computeAdvectionFlux(
-                        {iFace, jFace, kFace},
-                        {iFace, jFace, kFace},
-                        surface,
-                        sol);
-                    viscFlux = computeViscousFlux(
-                        {iFace, jFace, kFace},
-                        {iFace, jFace, kFace},
-                        surface);
-                    residual(iFace, jFace, kFace) += (advFlux - viscFlux) * surface.magnitude(); // flux entering the first node
+                    continue;
                 }
                 else if (dirFace == stopFace) { // ending boundary interfaces
-                    surface = surfaces(iFace - 1*stepMask[0], jFace - 1*stepMask[1], kFace - 1*stepMask[2]);
-                    advFlux = computeAdvectionFlux(
-                        {iFace - 1*stepMask[0], jFace - 1*stepMask[1], kFace - 1*stepMask[2]},
-                        {iFace - 1*stepMask[0], jFace - 1*stepMask[1], kFace - 1*stepMask[2]},
-                        surface,
-                        sol);
-                    viscFlux = computeViscousFlux(
-                        {iFace - 1*stepMask[0], jFace - 1*stepMask[1], kFace - 1*stepMask[2]},
-                        {iFace - 1*stepMask[0], jFace - 1*stepMask[1], kFace - 1*stepMask[2]},
-                        surface);
-                    residual(iFace - 1*stepMask[0], jFace - 1*stepMask[1], kFace - 1*stepMask[2]) -= (advFlux - viscFlux) * surface.magnitude(); // flux leaving the last node
+                    continue;
                 } 
                 else { // flux across internal faces
                     surface = surfaces(iFace, jFace, kFace);
@@ -278,9 +303,9 @@ void TurbulenceModelSA::computeFluxContribution(
                         iFace - 1*stepMask[0], 
                         jFace - 1*stepMask[1], 
                         kFace - 1*stepMask[2]
-                        ) -= (advFlux - viscFlux) * surface.magnitude();
+                        ) += (advFlux - viscFlux) * surface.magnitude();
                     
-                    residual(iFace, jFace, kFace) += (advFlux - viscFlux) * surface.magnitude();
+                    residual(iFace, jFace, kFace) -= (advFlux - viscFlux) * surface.magnitude();
                 }
             }
         }
@@ -405,5 +430,6 @@ void TurbulenceModelSA::updateSolution(const Matrix3D<FloatType> &residual, cons
 
 
 FloatType TurbulenceModelSA::getEddyViscosity(const FloatType &density, size_t i, size_t j, size_t k) const {
-    return _fv1(i,j,k) * density * _nuHat(i,j,k);
+    FloatType mu = _fv1(i,j,k) * density * _nuHat(i,j,k);
+    return mu;
 }

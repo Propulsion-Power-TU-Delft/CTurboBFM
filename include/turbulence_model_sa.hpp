@@ -9,7 +9,8 @@ public:
         const FluidBase &fluid, 
         const Mesh &mesh, 
         const std::vector<Boundary> &boundaries,
-        const Matrix3D<FloatType> &wallDistance
+        const Matrix3D<FloatType> &wallDistance,
+        const FlowSolution &initialSolution
     );
     
     ~TurbulenceModelSA() override = default;
@@ -27,6 +28,10 @@ protected:
         const FlowSolution &sol) override;
     
     void enforceOutletCondition(
+        const Boundary& boundary, 
+        const FlowSolution &sol) override;
+    
+    void enforceInletCondition(
         const Boundary& boundary, 
         const FlowSolution &sol) override;
     
@@ -66,6 +71,10 @@ protected:
         const std::array<size_t, 3> &idxRight,
         const Vector3D &surface);
     
+    void initializeFromZero();
+
+    void initializeFromRestartFile();
+    
     void updateSolution(const Matrix3D<FloatType> &residual, const Matrix3D<FloatType> &dt);
 
     FloatType getEddyThermalConductivity(const FloatType &mu, const FloatType &cp, const FloatType &Pr) const override {return mu*cp/Pr;}
@@ -83,8 +92,10 @@ private:
     const FloatType _ct4 = 0.5;
     const FloatType _cw1 = _cb1/(_kappa * _kappa) + (1.0 + _cb2) / _sigma;
     const Matrix3D<FloatType> &_wallDistance;
+    
     Matrix3D<FloatType> _nuHat;
     Matrix3D<FloatType> _nuLaminar;
     Matrix3D<Vector3D> _nuHatGrad;
     Matrix3D<FloatType> _fv1;
+    Matrix3D<FloatType> _initNuHat;
 };

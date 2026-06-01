@@ -9,8 +9,9 @@ public:
         const FluidBase &fluid, 
         const Mesh &mesh, 
         const std::vector<Boundary> &boundaries,
-        const Matrix3D<FloatType> &wallDistance
-    ) : TurbulenceModelBase(config, fluid, mesh, boundaries) {};
+        const Matrix3D<FloatType> &wallDistance,
+        const FlowSolution &initialSolution
+    ) : TurbulenceModelBase(config, fluid, mesh, boundaries, initialSolution) {};
     
     ~TurbulenceModelNone() override = default;
 
@@ -27,6 +28,10 @@ protected:
         const FlowSolution &sol) override {};
     
     void enforceOutletCondition(
+        const Boundary& boundary, 
+        const FlowSolution &sol) override {};
+    
+    void enforceInletCondition(
         const Boundary& boundary, 
         const FlowSolution &sol) override {};
     

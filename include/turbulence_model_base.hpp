@@ -14,7 +14,8 @@ public:
         const Config &config, 
         const FluidBase &fluid, 
         const Mesh &mesh, 
-        const std::vector<Boundary> &boundaries
+        const std::vector<Boundary> &boundaries,
+        const FlowSolution &initialSolution
     );
     
     virtual ~TurbulenceModelBase() = default;
@@ -30,6 +31,10 @@ public:
         const FlowSolution &sol) = 0;
     
     virtual void enforceOutletCondition(
+        const Boundary& boundary, 
+        const FlowSolution &sol) = 0;
+    
+    virtual void enforceInletCondition(
         const Boundary& boundary, 
         const FlowSolution &sol) = 0;
 
@@ -51,6 +56,7 @@ protected:
     const FluidBase& _fluid;
     const Mesh& _mesh;
     const std::vector<Boundary>& _boundaries;
+    const FlowSolution& _initialSolution;
     size_t _ni, _nj, _nk;
     Topology _topology;
 };
