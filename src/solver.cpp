@@ -1501,8 +1501,8 @@ void Solver::computeViscousFluxResiduals(
     size_t il, ir, jl, jr, kl, kr;
     
     // Following the idea of Blazek, and assuming adiabatic walls, there is no viscous flux coming from boundaries
-    for (size_t iFace = 0; iFace < ni; ++iFace) {
-        for (size_t jFace = 0; jFace < nj; ++jFace) {
+    for (size_t iFace = 1; iFace < ni-1; ++iFace) {
+        for (size_t jFace = 1; jFace < nj-1; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
                 
                 switch (direction)
@@ -1531,6 +1531,7 @@ void Solver::computeViscousFluxResiduals(
                     ir = iFace;
                     jr = jFace;
                     kr = kFace;
+                    surface = -surfaces(ir, jr, kr); // outward pointing to the first cell
                 }
                 else if (dirFace==stopFace){
                     il = iFace - stepMask[0];
@@ -1539,6 +1540,7 @@ void Solver::computeViscousFluxResiduals(
                     ir = iFace - stepMask[0];
                     jr = jFace - stepMask[1];
                     kr = kFace - stepMask[2];
+                    surface = surfaces(ir, jr, kr); // outward pointing to the last cell
                 }
                 else {
                     il = iFace - stepMask[0];
@@ -1547,6 +1549,7 @@ void Solver::computeViscousFluxResiduals(
                     ir = iFace;
                     jr = jFace;
                     kr = kFace;
+                    surface = surfaces(ir, jr, kr); // point from left to right cell
                 }
                 
                 Uleft = solution.at(il, jl, kl);
@@ -1578,15 +1581,14 @@ void Solver::computeViscousFluxResiduals(
                         _turbulenceModel->getEddyViscosity(solution.at(ir, jr, kr)[0], ir, jr, kr)
                         ) * 0.5;
                 
-                surface = surfaces(ir, jr, kr);
                 flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
                 
-                // the (-1.0) factor is needed because of the definition of R = Fc - Fv
-                if (dirFace > 0){
-                    residuals.subtract(il, jl, kl, flux * surface.magnitude() * (-1.0));
+                if (dirFace == 0 || dirFace == stopFace){
+                    continue;
                 }
-                if (dirFace < stopFace){
-                    residuals.add(ir, jr, kr, flux * surface.magnitude() * (-1.0));
+                else {
+                    residuals.add(il, jl, kl, flux * surface.magnitude() * (-1.0));
+                    residuals.subtract(ir, jr, kr, flux * surface.magnitude() * (-1.0));
                 }
             }
         }
