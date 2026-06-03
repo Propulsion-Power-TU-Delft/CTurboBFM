@@ -260,8 +260,8 @@ void TurbulenceModelSA::computeFluxContribution(
     size_t stopFace = 0;
     FloatType advFlux, viscFlux;
     
-    for (size_t iFace = 1; iFace < ni-1; ++iFace) {
-        for (size_t jFace = 1; jFace < nj-1; ++jFace) {
+    for (size_t iFace = 0; iFace < ni; ++iFace) {
+        for (size_t jFace = 0; jFace < nj; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
                 
                 switch (direction)
@@ -282,10 +282,10 @@ void TurbulenceModelSA::computeFluxContribution(
                     throw std::runtime_error("Invalid FluxDirection.");
                 }
                 
-                if (dirFace == 0 || dirFace == stopFace) { // starting boundary interfaces
+                if (dirFace == 0 || dirFace == stopFace) { // skip flux on boundaries
                     continue;
                 } 
-                else { // flux across internal faces
+                else { 
                     surface = surfaces(iFace, jFace, kFace);
                     advFlux = computeAdvectionFlux(
                         {iFace - 1*stepMask[0], jFace - 1*stepMask[1], kFace - 1*stepMask[2]},

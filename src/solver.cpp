@@ -1514,8 +1514,8 @@ void Solver::computeViscousFluxResiduals(
     size_t il, ir, jl, jr, kl, kr;
     
     // Following the idea of Blazek, and assuming adiabatic walls, there is no viscous flux coming from boundaries
-    for (size_t iFace = 1; iFace < ni-1; ++iFace) {
-        for (size_t jFace = 1; jFace < nj-1; ++jFace) {
+    for (size_t iFace = 0; iFace < ni; ++iFace) {
+        for (size_t jFace = 0; jFace < nj; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
                 
                 switch (direction)
@@ -1536,7 +1536,7 @@ void Solver::computeViscousFluxResiduals(
                     throw std::runtime_error("Invalid FluxDirection.");
                 }
                 
-                if (dirFace==0 || dirFace==stopFace){
+                if (dirFace==0 || dirFace==stopFace){ // skip boundary faces, no viscous flux contribution
                     continue;
                 }
                 else {
@@ -1546,7 +1546,7 @@ void Solver::computeViscousFluxResiduals(
                     ir = iFace;
                     jr = jFace;
                     kr = kFace;
-                    surface = surfaces(ir, jr, kr); // point from left to right cell
+                    surface = surfaces(ir, jr, kr); // pointing from left to right cell
                 }
                 
                 Uleft = solution.at(il, jl, kl);
