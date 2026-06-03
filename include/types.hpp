@@ -180,7 +180,8 @@ enum class BoundaryType {
     THROTTLE,
     INLET_2D,
     NO_SLIP_WALL,
-    TRANSPARENT
+    TRANSPARENT,
+    FARFIELD
 };
 
 static std::string toLower(std::string s)
@@ -205,7 +206,8 @@ inline BoundaryType boundaryTypeFromString(const std::string& s)
         {"throttle", BoundaryType::THROTTLE},
         {"inlet_2d", BoundaryType::INLET_2D},
         {"no_slip_wall", BoundaryType::NO_SLIP_WALL},
-        {"transparent", BoundaryType::TRANSPARENT}
+        {"transparent", BoundaryType::TRANSPARENT},
+        {"farfield", BoundaryType::FARFIELD}
     };
 
     std::string key = toLower(s);

@@ -277,6 +277,7 @@ void Output::updateViscousFields() {
             }
 
             FloatType d = 0.0;
+            FloatType yplus = 0.0;
             for (size_t i = range.iStart; i < range.iLast; ++i) {
                 for (size_t j = range.jStart; j < range.jLast; ++j) {
                     for (size_t k = range.kStart; k < range.kLast; ++k) {
@@ -288,9 +289,10 @@ void Output::updateViscousFields() {
                         _outputFields[WALL_SHEAR_STRESS_Z](i, j, k) = tauWall.z();
 
                         d = _wallDistance(i+step[0], j+step[1], k+step[2]) - _wallDistance(i, j, k);
-                        _outputFields[Y_PLUS](i, j, k) = std::sqrt(
+                        yplus = std::sqrt(
                             tauWall.magnitude() * _outputFields[DENSITY](i, j, k)
                             ) * d / _outputFields[MOLECULAR_VISCOSITY](i, j, k);
+                        _outputFields[Y_PLUS](i, j, k) = yplus;
                     }
                 }
             }

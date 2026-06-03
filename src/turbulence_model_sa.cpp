@@ -78,9 +78,10 @@ void TurbulenceModelSA::updateBoundaryValues(const FlowSolution &sol) {
             enforceNoSlipWallCondition(boundary, sol);
         }
         else if (
-            boundary.type == BoundaryType::INLET || 
-            boundary.type == BoundaryType::INLET_2D || 
-            boundary.type == BoundaryType::INLET_SUPERSONIC){
+            boundary.type == BoundaryType::INLET ||
+            boundary.type == BoundaryType::INLET_2D ||
+            boundary.type == BoundaryType::INLET_SUPERSONIC ||
+            boundary.type == BoundaryType::FARFIELD){
             enforceInletCondition(boundary, sol);
         }
         else if (boundary.type == BoundaryType::OUTLET || 

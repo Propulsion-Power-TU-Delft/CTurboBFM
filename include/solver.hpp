@@ -28,6 +28,7 @@
 #include "boundary_fake.hpp"
 #include "boundary_outlet_throttle.hpp"
 #include "boundary_transparent.hpp"
+#include "boundary_farfield.hpp"
 #include <fstream>
 #include <sstream>
 #include <iostream>

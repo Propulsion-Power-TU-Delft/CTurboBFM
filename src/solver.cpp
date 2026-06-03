@@ -266,10 +266,17 @@ void Solver::buildBoundaryFluxes() {
         }
         else if (bound.type == BoundaryType::TRANSPARENT){
             bound.fluxMethod = std::make_unique<BoundaryTransparent>(
-                _config, 
-                _mesh, 
-                *_fluid, 
+                _config,
+                _mesh,
+                *_fluid,
                 *_advection);
+        }
+        else if (bound.type == BoundaryType::FARFIELD){
+            bound.fluxMethod = std::make_unique<BoundaryFarfield>(
+                _config,
+                _mesh,
+                *_fluid,
+                bound.values);
         }
     }
 }
