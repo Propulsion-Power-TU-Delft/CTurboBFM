@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import pyvista as pv
 import os
 import pickle
 
@@ -11,12 +10,13 @@ import pickle
 Generate a 2D rectangular geometry, that will be used as verification
 """
 OUTPUT_FOLDER = 'Grid'
-LY = 0.83E-3 
-LX = 0.83E-3 
-LZ = LY * 5     # flow direction
-NX = 4          # not needed direction
-NY = 15
-NZ = 4 
+
+LZ = 1     # flow direction
+LY = LZ/5 
+LX = LZ/5
+NX = 6          # not needed direction
+NY = 65
+NZ = 6 
 
 x = np.linspace(0, LX, NX)
 y = np.linspace(0, LY, NY)
@@ -37,9 +37,6 @@ with open(OUTPUT_FOLDER + '/grid_%02i_%02i_%02i.csv' %(NI, NJ, NK), 'w') as file
         for j in range(NJ):
             for k in range(NK):
                 file.write(f"{X[i,j,k]:.6f},{Y[i,j,k]:.6f},{Z[i,j,k]:.6f}\n")
-
-
-
 
 
 
