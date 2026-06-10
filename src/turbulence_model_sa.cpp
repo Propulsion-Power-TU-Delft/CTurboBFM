@@ -147,8 +147,6 @@ void TurbulenceModelSA::enforceOutletCondition(const Boundary& boundary, const F
         donorStepJ = 0;
         donorStepK = -1;
         break;
-    default:
-        break;
     }
 
     // extract nuHat from the donor cell (internal)

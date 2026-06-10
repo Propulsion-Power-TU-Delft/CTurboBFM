@@ -1844,7 +1844,7 @@ void Solver::updateRadialProfiles(FlowSolution &solution){
         if (radialProfile.boundary.type == BoundaryType::THROTTLE){
             FloatType kt = radialProfile.boundary.values[0];
             FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
-            FloatType Pt_in;
+            FloatType Pt_in=0.0;
             for (auto& boundary: _boundaries){
                 if (boundary.type == BoundaryType::INLET){
                     Pt_in = boundary.values[0];
