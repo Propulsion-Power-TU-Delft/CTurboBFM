@@ -9,15 +9,13 @@ BIN_DIR := bin
 PROFILE_LIB_PATH := /opt/homebrew/opt/gperftools/lib
 PROFILE_INCLUDE_PATH := /opt/homebrew/opt/gperftools/include
 
-OMP_INC_PATH := /opt/homebrew/opt/libomp/include
-OMP_LIB_PATH := /opt/homebrew/opt/libomp/lib
-
 # ==========================================================
 # Compiler and flags
 # ==========================================================
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -I$(OMP_INC_PATH) -Xpreprocessor -fopenmp
-LDFLAGS  := -L$(OMP_LIB_PATH) -lomp
+CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR)
+
+LDFLAGS  :=
 
 # Build-type specific flags
 DEBUG_FLAGS   := -g -O0
@@ -46,7 +44,7 @@ GRAD_OBJECTS   := $(COMMON_OBJECTS) $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o,
 
 # Output binaries
 MAIN_TARGET := $(BIN_DIR)/turbobfm
-
+GRAD_TARGET := $(BIN_DIR)/turbobfm_grad
 
 # ==========================================================
 # Default rules
