@@ -114,7 +114,8 @@ void TurbulenceModelSA::enforceOutletCondition(const Boundary& boundary, const F
     BoundaryNodesIndexRange range = fetchBoundaryNodesIndexRange(boundary, _ni, _nj, _nk);
     BoundaryOrientation orientation = boundary.orientation;
     
-    int donorStepI, donorStepJ, donorStepK;
+    int donorStepI=0, donorStepJ=0, donorStepK=0;
+    
     switch (orientation)
     {
     case BoundaryOrientation::I_START:
