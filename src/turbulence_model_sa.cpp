@@ -19,10 +19,14 @@ void TurbulenceModelSA::setupModelEquations() {
     _nuHatGrad.resize(_ni, _nj, _nk);
     _nuLaminar.resize(_ni, _nj, _nk);
     _fv1.resize(_ni, _nj, _nk);
-    _initNuHat.resize(_ni, _nj, _nk);
 }
 
 void TurbulenceModelSA::setupInitialValues() {
+    FloatType initTemperature = _config.getInitTemperature();
+    FloatType initPressure = _config.getInitPressure();
+    FloatType initDensity = _fluid.computeDensity_p_T(initPressure, initTemperature);
+    _initNu = _fluid.computeMolecularDynamicViscosity(initTemperature) / initDensity;
+
     if (_config.restartSolution()) {
         initializeFromRestartFile();
     }
@@ -33,19 +37,14 @@ void TurbulenceModelSA::setupInitialValues() {
 }
 
 void TurbulenceModelSA::initializeFromZero() {
-    FloatType initTemperature = _config.getInitTemperature();
-    FloatType initPressure = _config.getInitPressure();
-    FloatType initDensity = _fluid.computeDensity_p_T(initPressure, initTemperature);
-    FloatType initNu = _fluid.computeMolecularDynamicViscosity(initTemperature) / initDensity;
 
     for (size_t i = 0; i < _ni; ++i) {
         for (size_t j = 0; j < _nj; ++j) {
             for (size_t k = 0; k < _nk; ++k) {
-                _initNuHat(i, j, k) = _farfieldNuHatScaling * initNu;
+                _nuHat(i, j, k) = _initialNuHatScaling * _initNu;
             }
         }
     }
-    _nuHat = _initNuHat;
 }
 
 void TurbulenceModelSA::initializeFromRestartFile() {
@@ -60,11 +59,10 @@ void TurbulenceModelSA::initializeFromRestartFile() {
                     {primitive[1], primitive[2], primitive[3]}, 
                     primitive[4]);
                 FloatType nu = _fluid.computeMolecularDynamicViscosity(temperature) / primitive[0];
-                _initNuHat(i, j, k) = _farfieldNuHatScaling * nu;
+                _nuHat(i, j, k) = _initialNuHatScaling * nu;
             }
         }
     }
-    _nuHat = _initNuHat;
 }
 
 
@@ -168,7 +166,7 @@ void TurbulenceModelSA::enforceInletCondition(const Boundary& boundary, const Fl
     for (size_t i = range.iStart; i < range.iLast; ++i) {
         for (size_t j = range.jStart; j < range.jLast; ++j) {
             for (size_t k = range.kStart; k < range.kLast; ++k) {
-                _nuHat(i, j, k) = _initNuHat(i, j, k);
+                _nuHat(i, j, k) = _initNu * _farfieldNuHatScaling;
             }
         }
     }
@@ -386,7 +384,7 @@ FloatType TurbulenceModelSA::computeSource(
     
     FloatType chi = _nuHat(i,j,k) / _nuLaminar(i,j,k);
     
-    _fv1(i,j,k) = chi*chi*chi / (chi*chi*chi + _cv1*_cv1*_cv1);
+    _fv1(i,j,k) = (chi*chi*chi) / (chi*chi*chi + _cv1*_cv1*_cv1);
     
     FloatType fv2 = std::pow(1.0+chi/_cv2, -3.0);
     
@@ -404,7 +402,7 @@ FloatType TurbulenceModelSA::computeSource(
 
     FloatType r = _nuHat(i,j,k) / (Shat * _kappa*_kappa * _wallDistance(i,j,k)*_wallDistance(i,j,k));
 
-    FloatType g = r + _cw2*(std::pow(r,6) - r);
+    FloatType g = r + _cw2*(std::pow(r,6.0) - r);
 
     FloatType fw = g * std::pow(
         (1.0 + std::pow(_cw3, 6.0)) / (std::pow(g, 6.0) + std::pow(_cw3, 6.0)),
