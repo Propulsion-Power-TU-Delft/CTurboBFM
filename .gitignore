@@ -51,6 +51,7 @@ main
 *.png
 *.pik
 *.txt
+*.sh
 
 # build files
 *cmake*
@@ -59,3 +60,4 @@ main
 # folders
 dev/
 *Nasa_Grids*
+*.dat
