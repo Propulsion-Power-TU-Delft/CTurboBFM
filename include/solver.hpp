@@ -135,6 +135,14 @@ private:
         size_t itCounter, 
         FlowSolution &residuals) const;
     
+    template <typename AdvectionScheme>
+    void computeAdvectionFluxResidualsImpl(
+        const AdvectionScheme& advection,
+        FluxDirection direction, 
+        const FlowSolution& solution, 
+        size_t itCounter, 
+        FlowSolution &residuals) const;
+    
     /** @brief compute the advection flux contribution to the residuals 
     */
     void computeViscousFluxResiduals(

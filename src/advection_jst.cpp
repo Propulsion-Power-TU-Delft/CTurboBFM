@@ -6,7 +6,7 @@ StateVector AdvectionJst::computeFlux(
     const StateVector& Ul,
     const StateVector& Ur,
     const StateVector& Urr,
-    const Vector3D& S) 
+    const Vector3D& S) const
 {
     
     auto Wll = getPrimitiveVariablesFromConservative(Ull);

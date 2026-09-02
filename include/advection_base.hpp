@@ -22,7 +22,7 @@ public:
         const StateVector &Ul, 
         const StateVector &Ur, 
         const StateVector &Urr,
-        const Vector3D &surface) = 0;
+        const Vector3D &surface) const = 0;
     
     void musclReconstructLeftRight(
         StateVector& Wll, 

@@ -186,7 +186,7 @@ void computeGradientGreenGauss(
     size_t nj = volumes.sizeJ();
     size_t nk = volumes.sizeK();
 
-    #pragma omp parallel for collapse(2) schedule(static)
+    #pragma omp parallel for collapse(2) schedule(static) if(ni * nj >= 64)
     for (size_t i = 0; i < ni; i++){
         for (size_t j = 0; j < nj; j++){
             for (size_t k = 0; k < nk; k++){
@@ -228,6 +228,164 @@ void computeGradientGreenGauss(
                     scalarTop};
 
                 gradient(i,j,k) = computeGreenGaussDivergence(surfaces, scalars, volumes(i,j,k));
+            }
+        }
+    }
+}
+
+
+void computeGradientsGreenGauss4(
+    const Matrix3D<Vector3D>& surfacesI, 
+    const Matrix3D<Vector3D>& surfacesJ, 
+    const Matrix3D<Vector3D>& surfacesK, 
+    const Matrix3D<Vector3D>& midPointsI, 
+    const Matrix3D<Vector3D>& midPointsJ, 
+    const Matrix3D<Vector3D>& midPointsK, 
+    const Matrix3D<Vector3D>& nodes, 
+    const Matrix3D<FloatType>& volumes, 
+    const Matrix3D<FloatType>& field0, 
+    const Matrix3D<FloatType>& field1, 
+    const Matrix3D<FloatType>& field2, 
+    const Matrix3D<FloatType>& field3, 
+    Matrix3D<Vector3D>& grad0,
+    Matrix3D<Vector3D>& grad1,
+    Matrix3D<Vector3D>& grad2,
+    Matrix3D<Vector3D>& grad3){
+
+    const size_t ni = volumes.sizeI();
+    const size_t nj = volumes.sizeJ();
+    const size_t nk = volumes.sizeK();
+
+    #pragma omp parallel for collapse(2) schedule(static) if(ni * nj >= 64)
+    for (size_t i = 0; i < ni; ++i){
+        for (size_t j = 0; j < nj; ++j){
+            for (size_t k = 0; k < nk; ++k){
+                const Vector3D p0 = nodes(i, j, k);
+
+                const FloatType f0_c = field0(i, j, k);
+                const FloatType f1_c = field1(i, j, k);
+                const FloatType f2_c = field2(i, j, k);
+                const FloatType f3_c = field3(i, j, k);
+
+                std::array<FloatType, 6> s0, s1, s2, s3;
+
+                // West Face (f = 0)
+                if (i == 0) {
+                    s0[0] = f0_c; s1[0] = f1_c; s2[0] = f2_c; s3[0] = f3_c;
+                } else {
+                    const Vector3D p1 = nodes(i - 1, j, k);
+                    const Vector3D mid = midPointsI(i, j, k);
+                    const FloatType d0 = (mid - p0).magnitude();
+                    const FloatType d1 = (mid - p1).magnitude();
+                    const FloatType w = d0 / (d0 + d1);
+                    s0[0] = f0_c + (field0(i - 1, j, k) - f0_c) * w;
+                    s1[0] = f1_c + (field1(i - 1, j, k) - f1_c) * w;
+                    s2[0] = f2_c + (field2(i - 1, j, k) - f2_c) * w;
+                    s3[0] = f3_c + (field3(i - 1, j, k) - f3_c) * w;
+                }
+
+                // East Face (f = 1)
+                if (i == ni - 1) {
+                    s0[1] = f0_c; s1[1] = f1_c; s2[1] = f2_c; s3[1] = f3_c;
+                } else {
+                    const Vector3D p1 = nodes(i + 1, j, k);
+                    const Vector3D mid = midPointsI(i + 1, j, k);
+                    const FloatType d0 = (mid - p0).magnitude();
+                    const FloatType d1 = (mid - p1).magnitude();
+                    const FloatType w = d0 / (d0 + d1);
+                    s0[1] = f0_c + (field0(i + 1, j, k) - f0_c) * w;
+                    s1[1] = f1_c + (field1(i + 1, j, k) - f1_c) * w;
+                    s2[1] = f2_c + (field2(i + 1, j, k) - f2_c) * w;
+                    s3[1] = f3_c + (field3(i + 1, j, k) - f3_c) * w;
+                }
+
+                // North Face (f = 2)
+                if (j == nj - 1) {
+                    s0[2] = f0_c; s1[2] = f1_c; s2[2] = f2_c; s3[2] = f3_c;
+                } else {
+                    const Vector3D p1 = nodes(i, j + 1, k);
+                    const Vector3D mid = midPointsJ(i, j + 1, k);
+                    const FloatType d0 = (mid - p0).magnitude();
+                    const FloatType d1 = (mid - p1).magnitude();
+                    const FloatType w = d0 / (d0 + d1);
+                    s0[2] = f0_c + (field0(i, j + 1, k) - f0_c) * w;
+                    s1[2] = f1_c + (field1(i, j + 1, k) - f1_c) * w;
+                    s2[2] = f2_c + (field2(i, j + 1, k) - f2_c) * w;
+                    s3[2] = f3_c + (field3(i, j + 1, k) - f3_c) * w;
+                }
+
+                // South Face (f = 3)
+                if (j == 0) {
+                    s0[3] = f0_c; s1[3] = f1_c; s2[3] = f2_c; s3[3] = f3_c;
+                } else {
+                    const Vector3D p1 = nodes(i, j - 1, k);
+                    const Vector3D mid = midPointsJ(i, j, k);
+                    const FloatType d0 = (mid - p0).magnitude();
+                    const FloatType d1 = (mid - p1).magnitude();
+                    const FloatType w = d0 / (d0 + d1);
+                    s0[3] = f0_c + (field0(i, j - 1, k) - f0_c) * w;
+                    s1[3] = f1_c + (field1(i, j - 1, k) - f1_c) * w;
+                    s2[3] = f2_c + (field2(i, j - 1, k) - f2_c) * w;
+                    s3[3] = f3_c + (field3(i, j - 1, k) - f3_c) * w;
+                }
+
+                // Bottom Face (f = 4)
+                if (k == 0) {
+                    s0[4] = f0_c; s1[4] = f1_c; s2[4] = f2_c; s3[4] = f3_c;
+                } else {
+                    const Vector3D p1 = nodes(i, j, k - 1);
+                    const Vector3D mid = midPointsK(i, j, k);
+                    const FloatType d0 = (mid - p0).magnitude();
+                    const FloatType d1 = (mid - p1).magnitude();
+                    const FloatType w = d0 / (d0 + d1);
+                    s0[4] = f0_c + (field0(i, j, k - 1) - f0_c) * w;
+                    s1[4] = f1_c + (field1(i, j, k - 1) - f1_c) * w;
+                    s2[4] = f2_c + (field2(i, j, k - 1) - f2_c) * w;
+                    s3[4] = f3_c + (field3(i, j, k - 1) - f3_c) * w;
+                }
+
+                // Top Face (f = 5)
+                if (k == nk - 1) {
+                    s0[5] = f0_c; s1[5] = f1_c; s2[5] = f2_c; s3[5] = f3_c;
+                } else {
+                    const Vector3D p1 = nodes(i, j, k + 1);
+                    const Vector3D mid = midPointsK(i, j, k + 1);
+                    const FloatType d0 = (mid - p0).magnitude();
+                    const FloatType d1 = (mid - p1).magnitude();
+                    const FloatType w = d0 / (d0 + d1);
+                    s0[5] = f0_c + (field0(i, j, k + 1) - f0_c) * w;
+                    s1[5] = f1_c + (field1(i, j, k + 1) - f1_c) * w;
+                    s2[5] = f2_c + (field2(i, j, k + 1) - f2_c) * w;
+                    s3[5] = f3_c + (field3(i, j, k + 1) - f3_c) * w;
+                }
+
+                const std::array<Vector3D, 6> surfaces = {
+                    -surfacesI(i, j, k),
+                    surfacesI(i + 1, j, k),
+                    surfacesJ(i, j + 1, k),
+                    -surfacesJ(i, j, k),
+                    -surfacesK(i, j, k),
+                    surfacesK(i, j, k + 1)
+                };
+
+                Vector3D g0(0.0, 0.0, 0.0);
+                Vector3D g1(0.0, 0.0, 0.0);
+                Vector3D g2(0.0, 0.0, 0.0);
+                Vector3D g3(0.0, 0.0, 0.0);
+
+                for (size_t f = 0; f < 6; ++f) {
+                    const Vector3D& s = surfaces[f];
+                    g0 += s * s0[f];
+                    g1 += s * s1[f];
+                    g2 += s * s2[f];
+                    g3 += s * s3[f];
+                }
+
+                const FloatType invVol = 1.0 / volumes(i, j, k);
+                grad0(i, j, k) = g0 * invVol;
+                grad1(i, j, k) = g1 * invVol;
+                grad2(i, j, k) = g2 * invVol;
+                grad3(i, j, k) = g3 * invVol;
             }
         }
     }

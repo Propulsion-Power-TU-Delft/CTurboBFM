@@ -1081,7 +1081,7 @@ void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatTy
 
     if (_config.getTimeStepMethod() == TimeStepMethod::FIXED){
         FloatType dtMin = _config.getFixedTimeStep();
-        #pragma omp parallel for collapse(2) schedule(static)
+        #pragma omp parallel for collapse(2) schedule(static) if(_nPointsI * _nPointsJ >= 64)
         for (size_t i=0; i<_nPointsI; i++) {
             for (size_t j=0; j<_nPointsJ; j++){
                 for (size_t k=0; k<_nPointsK; k++){
@@ -1092,7 +1092,7 @@ void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatTy
         return;
     }
 
-    #pragma omp parallel for collapse(2) schedule(static)
+    #pragma omp parallel for collapse(2) schedule(static) if(_nPointsI * _nPointsJ >= 64)
     for (size_t i=0; i<_nPointsI; i++) {
         for (size_t j=0; j<_nPointsJ; j++) {
             for (size_t k=0; k<_nPointsK; k++) {
@@ -1343,7 +1343,9 @@ void Solver::enforceNoSlipWallsOnResiduals(FlowSolution& residuals) const {
 }
 
 
-void Solver::computeAdvectionFluxResiduals(
+template <typename AdvectionScheme>
+void Solver::computeAdvectionFluxResidualsImpl(
+    const AdvectionScheme& advection,
     FluxDirection direction, 
     const FlowSolution& solution, 
     size_t itCounter, 
@@ -1472,7 +1474,7 @@ void Solver::computeAdvectionFluxResiduals(
             }
 
             Vector3D surface = surfaces(iFace, jFace, kFace); // outward pointing with respect to the left cell
-            StateVector flux = _advection->computeFlux(Uleftleft, Uleft, Uright, Urightright, surface);
+            StateVector flux = advection.computeFlux(Uleftleft, Uleft, Uright, Urightright, surface);
             residuals.add(
                 iFace-1*stepMask[0], 
                 jFace-1*stepMask[1], 
@@ -1487,7 +1489,7 @@ void Solver::computeAdvectionFluxResiduals(
     };
 
     if (direction == FluxDirection::I) {
-        #pragma omp parallel for collapse(2) schedule(static)
+        #pragma omp parallel for collapse(2) schedule(static) if(nj * nk >= 64)
         for (size_t jFace = 0; jFace < nj; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
                 for (size_t iFace = 0; iFace < ni; ++iFace) {
@@ -1497,7 +1499,7 @@ void Solver::computeAdvectionFluxResiduals(
         }
     }
     else if (direction == FluxDirection::J) {
-        #pragma omp parallel for collapse(2) schedule(static)
+        #pragma omp parallel for collapse(2) schedule(static) if(ni * nk >= 64)
         for (size_t iFace = 0; iFace < ni; ++iFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
                 for (size_t jFace = 0; jFace < nj; ++jFace) {
@@ -1507,7 +1509,7 @@ void Solver::computeAdvectionFluxResiduals(
         }
     }
     else { // FluxDirection::K
-        #pragma omp parallel for collapse(2) schedule(static)
+        #pragma omp parallel for collapse(2) schedule(static) if(ni * nj >= 64)
         for (size_t iFace = 0; iFace < ni; ++iFace) {
             for (size_t jFace = 0; jFace < nj; ++jFace) {
                 for (size_t kFace = 0; kFace < nk; ++kFace) {
@@ -1515,6 +1517,23 @@ void Solver::computeAdvectionFluxResiduals(
                 }
             }
         }
+    }
+}
+
+void Solver::computeAdvectionFluxResiduals(
+    FluxDirection direction, 
+    const FlowSolution& solution, 
+    size_t itCounter, 
+    FlowSolution &residuals) const {
+
+    if (const auto* roe = dynamic_cast<const AdvectionRoe*>(_advection.get())) {
+        computeAdvectionFluxResidualsImpl(*roe, direction, solution, itCounter, residuals);
+    }
+    else if (const auto* jst = dynamic_cast<const AdvectionJst*>(_advection.get())) {
+        computeAdvectionFluxResidualsImpl(*jst, direction, solution, itCounter, residuals);
+    }
+    else {
+        computeAdvectionFluxResidualsImpl(*_advection, direction, solution, itCounter, residuals);
     }
 }
 
@@ -1529,86 +1548,104 @@ void Solver::computeViscousFluxResiduals(
     const auto stepMask = getStepMask(direction);
     const Matrix3D<Vector3D>& surfaces = _mesh.getSurfaces(direction);
     
-    StateVector Uleft{}, Uright{}, Uavg{}, flux {};
-    Vector3D surface {};
-    Vector3D uxGrad, uyGrad, uzGrad, tempGrad;
-    FloatType muEddy;
-
     size_t ni = surfaces.sizeI(); 
     size_t nj = surfaces.sizeJ(); 
     size_t nk = surfaces.sizeK();
-    size_t dirFace = 0;
-    size_t stopFace = 0;
-    size_t il, ir, jl, jr, kl, kr;
     
-    // Following the idea of Blazek, and assuming adiabatic walls, there is no viscous flux coming from boundaries
-    for (size_t iFace = 0; iFace < ni; ++iFace) {
+    auto processViscousFace = [&](size_t iFace, size_t jFace, size_t kFace) {
+        size_t dirFace = 0;
+        size_t stopFace = 0;
+        switch (direction)
+        {
+        case (FluxDirection::I):
+            dirFace = iFace;
+            stopFace = ni-1;
+            break;
+        case (FluxDirection::J):
+            dirFace = jFace;
+            stopFace = nj-1;
+            break;
+        case (FluxDirection::K):
+            dirFace = kFace;
+            stopFace = nk-1;
+            break;
+        default:
+            throw std::runtime_error("Invalid FluxDirection.");
+        }
+        
+        if (dirFace==0 || dirFace==stopFace){ // skip boundary faces, no viscous flux contribution
+            return;
+        }
+
+        size_t il = iFace - stepMask[0];
+        size_t jl = jFace - stepMask[1];
+        size_t kl = kFace - stepMask[2];
+        size_t ir = iFace;
+        size_t jr = jFace;
+        size_t kr = kFace;
+        Vector3D surface = surfaces(ir, jr, kr); // pointing from left to right cell
+        
+        StateVector Uleft = solution.at(il, jl, kl);
+        StateVector Uright = solution.at(ir, jr, kr);
+        StateVector Uavg = (Uleft + Uright) * 0.5;
+
+        Vector3D uxGrad = (
+            gradients.at(SolutionName::VELOCITY_X)(il, jl, kl) + 
+            gradients.at(SolutionName::VELOCITY_X)(ir, jr, kr)
+            ) * 0.5;
+        
+        Vector3D uyGrad = (
+            gradients.at(SolutionName::VELOCITY_Y)(il, jl, kl) + 
+            gradients.at(SolutionName::VELOCITY_Y)(ir, jr, kr)
+            ) * 0.5;
+
+        Vector3D uzGrad = (
+            gradients.at(SolutionName::VELOCITY_Z)(il, jl, kl) + 
+            gradients.at(SolutionName::VELOCITY_Z)(ir, jr, kr)
+            ) * 0.5;
+        
+        Vector3D tempGrad = (
+            gradients.at(SolutionName::TEMPERATURE)(il, jl, kl) + 
+            gradients.at(SolutionName::TEMPERATURE)(ir, jr, kr)
+            ) * 0.5;
+        
+        FloatType muEddy = (
+                _turbulenceModel->getEddyViscosity(solution.at(il, jl, kl)[0], il, jl, kl) +
+                _turbulenceModel->getEddyViscosity(solution.at(ir, jr, kr)[0], ir, jr, kr)
+                ) * 0.5;
+        
+        StateVector flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
+        residuals.add(il, jl, kl, flux * surface.magnitude() * (-1.0));
+        residuals.subtract(ir, jr, kr, flux * surface.magnitude() * (-1.0));
+    };
+
+    if (direction == FluxDirection::I) {
+        #pragma omp parallel for collapse(2) schedule(static) if(nj * nk >= 64)
         for (size_t jFace = 0; jFace < nj; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
-                
-                switch (direction)
-                {
-                case (FluxDirection::I):
-                    dirFace = iFace;
-                    stopFace = ni-1;
-                    break;
-                case (FluxDirection::J):
-                    dirFace = jFace;
-                    stopFace = nj-1;
-                    break;
-                case (FluxDirection::K):
-                    dirFace = kFace;
-                    stopFace = nk-1;
-                    break;
-                default:
-                    throw std::runtime_error("Invalid FluxDirection.");
+                for (size_t iFace = 0; iFace < ni; ++iFace) {
+                    processViscousFace(iFace, jFace, kFace);
                 }
-                
-                if (dirFace==0 || dirFace==stopFace){ // skip boundary faces, no viscous flux contribution
-                    continue;
+            }
+        }
+    }
+    else if (direction == FluxDirection::J) {
+        #pragma omp parallel for collapse(2) schedule(static) if(ni * nk >= 64)
+        for (size_t iFace = 0; iFace < ni; ++iFace) {
+            for (size_t kFace = 0; kFace < nk; ++kFace) {
+                for (size_t jFace = 0; jFace < nj; ++jFace) {
+                    processViscousFace(iFace, jFace, kFace);
                 }
-                else {
-                    il = iFace - stepMask[0];
-                    jl = jFace - stepMask[1];
-                    kl = kFace - stepMask[2];
-                    ir = iFace;
-                    jr = jFace;
-                    kr = kFace;
-                    surface = surfaces(ir, jr, kr); // pointing from left to right cell
+            }
+        }
+    }
+    else { // FluxDirection::K
+        #pragma omp parallel for collapse(2) schedule(static) if(ni * nj >= 64)
+        for (size_t iFace = 0; iFace < ni; ++iFace) {
+            for (size_t jFace = 0; jFace < nj; ++jFace) {
+                for (size_t kFace = 0; kFace < nk; ++kFace) {
+                    processViscousFace(iFace, jFace, kFace);
                 }
-                
-                Uleft = solution.at(il, jl, kl);
-                Uright = solution.at(ir, jr, kr);
-                Uavg = (Uleft + Uright) * 0.5;
-
-                uxGrad = (
-                    gradients.at(SolutionName::VELOCITY_X)(il, jl, kl) + 
-                    gradients.at(SolutionName::VELOCITY_X)(ir, jr, kr)
-                    ) * 0.5;
-                
-                uyGrad = (
-                    gradients.at(SolutionName::VELOCITY_Y)(il, jl, kl) + 
-                    gradients.at(SolutionName::VELOCITY_Y)(ir, jr, kr)
-                    ) * 0.5;
-
-                uzGrad = (
-                    gradients.at(SolutionName::VELOCITY_Z)(il, jl, kl) + 
-                    gradients.at(SolutionName::VELOCITY_Z)(ir, jr, kr)
-                    ) * 0.5;
-                
-                tempGrad = (
-                    gradients.at(SolutionName::TEMPERATURE)(il, jl, kl) + 
-                    gradients.at(SolutionName::TEMPERATURE)(ir, jr, kr)
-                    ) * 0.5;
-                
-                muEddy = (
-                        _turbulenceModel->getEddyViscosity(solution.at(il, jl, kl)[0], il, jl, kl) +
-                        _turbulenceModel->getEddyViscosity(solution.at(ir, jr, kr)[0], ir, jr, kr)
-                        ) * 0.5;
-                
-                flux = computeViscousFlux(Uavg, uxGrad, uyGrad, uzGrad, tempGrad, surface, muEddy);
-                residuals.add(il, jl, kl, flux * surface.magnitude() * (-1.0));
-                residuals.subtract(ir, jr, kr, flux * surface.magnitude() * (-1.0));
             }
         }
     }
@@ -1679,18 +1716,16 @@ void Solver::updateSolution(
     const Matrix3D<FloatType> &dt){
     
     // U^{n+1} = U^n - dt / V * R
-    for (size_t i = 0; i < _nPointsI; ++i) {
-        for (size_t j = 0; j < _nPointsJ; ++j) {
-            for (size_t k = 0; k < _nPointsK; ++k) {
+    const size_t totalCells = _nPointsI * _nPointsJ * _nPointsK;
+    const FloatType* d_dt = dt.data();
+    const FloatType* d_vol = _mesh.getVolumes().data();
 
-                const auto U  = solOld.at(i,j,k);
-                const auto R  = residuals.at(i,j,k);
-                const auto dti = dt(i,j,k);
-                const auto vol = _mesh.getVolume(i,j,k);
-
-                solNew.set(i,j,k, U - R * (integrationCoeff * dti / vol));
-            }
-        }
+    #pragma omp parallel for schedule(static) if(totalCells >= 64)
+    for (size_t idx = 0; idx < totalCells; ++idx) {
+        const auto U = solOld.at(idx);
+        const auto R = residuals.at(idx);
+        const FloatType factor = integrationCoeff * d_dt[idx] / d_vol[idx];
+        solNew.set(idx, U - R * factor);
     }
 }
 
@@ -2108,14 +2143,22 @@ void Solver::computeSolutionGradient(FlowSolution &sol, std::map<SolutionName, M
     Matrix3D<FloatType> uy = sol.getVelocityY();
     Matrix3D<FloatType> uz = sol.getVelocityZ();
     Matrix3D<FloatType> et = sol.getTotalEnergy();
-
-    computeGradientOfField(ux, solutionGrad[SolutionName::VELOCITY_X]);
-    computeGradientOfField(uy, solutionGrad[SolutionName::VELOCITY_Y]);
-    computeGradientOfField(uz, solutionGrad[SolutionName::VELOCITY_Z]);
     Matrix3D<FloatType> temperature = _fluid->computeTemperature_conservative(rho, ux, uy, uz, et);
-    computeGradientOfField(temperature, solutionGrad[SolutionName::TEMPERATURE]);
 
-    
+    computeGradientsGreenGauss4(
+        _mesh.getSurfacesI(), 
+        _mesh.getSurfacesJ(), 
+        _mesh.getSurfacesK(), 
+        _mesh.getMidPointsI(), 
+        _mesh.getMidPointsJ(), 
+        _mesh.getMidPointsK(), 
+        _mesh.getVertices(), 
+        _mesh.getVolumes(), 
+        ux, uy, uz, temperature,
+        solutionGrad[SolutionName::VELOCITY_X],
+        solutionGrad[SolutionName::VELOCITY_Y],
+        solutionGrad[SolutionName::VELOCITY_Z],
+        solutionGrad[SolutionName::TEMPERATURE]);
 }
 
 void Solver::updateTurbulenceSolution(

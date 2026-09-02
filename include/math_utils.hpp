@@ -65,6 +65,24 @@ void computeGradientGreenGauss(
     const Matrix3D<FloatType>& field, 
     Matrix3D<Vector3D>& gradient);
 
+void computeGradientsGreenGauss4(
+    const Matrix3D<Vector3D>& surfacesI, 
+    const Matrix3D<Vector3D>& surfacesJ, 
+    const Matrix3D<Vector3D>& surfacesK, 
+    const Matrix3D<Vector3D>& midPointsI, 
+    const Matrix3D<Vector3D>& midPointsJ, 
+    const Matrix3D<Vector3D>& midPointsK, 
+    const Matrix3D<Vector3D>& nodes, 
+    const Matrix3D<FloatType>& volumes, 
+    const Matrix3D<FloatType>& field0, 
+    const Matrix3D<FloatType>& field1, 
+    const Matrix3D<FloatType>& field2, 
+    const Matrix3D<FloatType>& field3, 
+    Matrix3D<Vector3D>& grad0,
+    Matrix3D<Vector3D>& grad1,
+    Matrix3D<Vector3D>& grad2,
+    Matrix3D<Vector3D>& grad3);
+
 FloatType interpolateScalar(
     const Matrix3D<FloatType>& field, 
     size_t i, 

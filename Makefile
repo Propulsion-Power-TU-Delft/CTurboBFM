@@ -22,7 +22,7 @@ LDFLAGS  := -L$(OMP_LIB_PATH) -lomp
 
 # Build-type specific flags
 DEBUG_FLAGS   := -g -O0
-RELEASE_FLAGS := -O3 -DNDEBUG -march=native
+RELEASE_FLAGS := -O3 -DNDEBUG -march=native -flto
 PROFILE_FLAGS := -g -O3 -DNDEBUG -march=native -I$(PROFILE_INCLUDE_PATH)
 
 # Default build type
@@ -58,6 +58,7 @@ debug: CXXFLAGS += $(DEBUG_FLAGS)
 debug: all
 
 release: CXXFLAGS += $(RELEASE_FLAGS)
+release: LDFLAGS += -flto
 release: all
 
 profile: CXXFLAGS += $(PROFILE_FLAGS)

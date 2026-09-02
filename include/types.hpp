@@ -389,6 +389,23 @@ class Matrix3D {
             return _data[i * _nj * _nk + j * _nk + k];
         }
 
+        inline T& operator[](size_t idx) {
+            return _data[idx];
+        }
+
+        inline const T& operator[](size_t idx) const {
+            return _data[idx];
+        }
+
+        inline size_t getIndex(size_t i, size_t j, size_t k) const {
+            return (i * _nj + j) * _nk + k;
+        }
+
+        inline size_t totalSize() const { return _data.size(); }
+
+        inline T* data() { return _data.data(); }
+        inline const T* data() const { return _data.data(); }
+
         size_t sizeI() const { return _ni; }
         size_t sizeJ() const { return _nj; }
         size_t sizeK() const { return _nk; }
@@ -396,12 +413,9 @@ class Matrix3D {
         // Compute L2 norm of all the matrix elements
         T norm() const {
             T sum = 0;
-            for (size_t i = 0; i < _ni; ++i) {
-                for (size_t j = 0; j < _nj; ++j) {
-                    for (size_t k = 0; k < _nk; ++k) {
-                        sum += std::pow(operator()(i, j, k), 2); 
-                    }
-                }
+            const size_t n = _data.size();
+            for (size_t idx = 0; idx < n; ++idx) {
+                sum += _data[idx] * _data[idx];
             }
             return std::sqrt(sum); 
         }
@@ -417,10 +431,7 @@ class Matrix3D {
         }
 
         void setToZero() {
-            size_t n = _data.size();
-            for (size_t idx = 0; idx < n; ++idx) {
-                _data[idx] = T(0);
-            }
+            std::fill(_data.begin(), _data.end(), T(0));
         }
 
         Matrix3D& operator*=(const Matrix3D& other) {
@@ -465,17 +476,16 @@ class Matrix3D {
 
         // In-place division
         Matrix3D<T> operator/(const Matrix3D<FloatType>& other) const {
-            assert(_ni == other._ni && "Matrix3D::operator+= dimension mismatch on ni");
-            assert(_nj == other._nj && "Matrix3D::operator+= dimension mismatch on nj");
-            assert(_nk == other._nk && "Matrix3D::operator+= dimension mismatch on nk");
+            assert(_ni == other._ni && "Matrix3D::operator/ dimension mismatch on ni");
+            assert(_nj == other._nj && "Matrix3D::operator/ dimension mismatch on nj");
+            assert(_nk == other._nk && "Matrix3D::operator/ dimension mismatch on nk");
             Matrix3D<FloatType> result(_ni, _nj, _nk);
-            for (size_t i = 0; i < _ni; ++i) {
-                for (size_t j = 0; j < _nj; ++j) {
-                    for (size_t k = 0; k < _nk; ++k) {
-                        if (other(i, j, k) == 0) throw std::runtime_error("Division by zero");
-                        result(i, j, k) = (*this)(i, j, k) / other(i, j, k);
-                    }
-                }
+            const size_t n = _data.size();
+            const auto* otherData = other.data();
+            auto* resData = result.data();
+            for (size_t idx = 0; idx < n; ++idx) {
+                if (otherData[idx] == 0) throw std::runtime_error("Division by zero");
+                resData[idx] = _data[idx] / otherData[idx];
             }
             return result;
         }
@@ -813,51 +823,76 @@ struct FlowSolution {
         return results;
     }
 
-    void add(size_t i, size_t j, size_t k, const StateVector& delta) {
-        _rho(i,j,k)   += delta[0];
-        _rhoU(i,j,k)  += delta[1];
-        _rhoV(i,j,k)  += delta[2];
-        _rhoW(i,j,k)  += delta[3];
-        _rhoE(i,j,k)  += delta[4];
+    inline size_t getIndex(size_t i, size_t j, size_t k) const {
+        return (i * _rho.sizeJ() + j) * _rho.sizeK() + k;
     }
 
-    void subtract(size_t i, size_t j, size_t k, const StateVector& delta) {
-        _rho(i,j,k)   -= delta[0];
-        _rhoU(i,j,k)  -= delta[1];
-        _rhoV(i,j,k)  -= delta[2];
-        _rhoW(i,j,k)  -= delta[3];
-        _rhoE(i,j,k)  -= delta[4];
+    inline size_t totalSize() const {
+        return _rho.totalSize();
     }
 
-    StateVector at(size_t i, size_t j, size_t k) const {
-        return StateVector({_rho(i,j,k), _rhoU(i,j,k), _rhoV(i,j,k), _rhoW(i,j,k), _rhoE(i,j,k)});
+    inline void add(size_t i, size_t j, size_t k, const StateVector& delta) {
+        const size_t idx = getIndex(i, j, k);
+        _rho[idx]   += delta[0];
+        _rhoU[idx]  += delta[1];
+        _rhoV[idx]  += delta[2];
+        _rhoW[idx]  += delta[3];
+        _rhoE[idx]  += delta[4];
     }
 
-    void set(size_t i, size_t j, size_t k, const StateVector& vals) {
-        _rho(i,j,k) = vals[0];
-        _rhoU(i,j,k) = vals[1];
-        _rhoV(i,j,k) = vals[2];
-        _rhoW(i,j,k) = vals[3];
-        _rhoE(i,j,k) = vals[4];
+    inline void subtract(size_t i, size_t j, size_t k, const StateVector& delta) {
+        const size_t idx = getIndex(i, j, k);
+        _rho[idx]   -= delta[0];
+        _rhoU[idx]  -= delta[1];
+        _rhoV[idx]  -= delta[2];
+        _rhoW[idx]  -= delta[3];
+        _rhoE[idx]  -= delta[4];
     }
 
-    void set(size_t i, size_t j, size_t k, const size_t iVar, FloatType val) {
+    inline StateVector at(size_t i, size_t j, size_t k) const {
+        const size_t idx = getIndex(i, j, k);
+        return StateVector({_rho[idx], _rhoU[idx], _rhoV[idx], _rhoW[idx], _rhoE[idx]});
+    }
+
+    inline StateVector at(size_t idx) const {
+        return StateVector({_rho[idx], _rhoU[idx], _rhoV[idx], _rhoW[idx], _rhoE[idx]});
+    }
+
+    inline void set(size_t i, size_t j, size_t k, const StateVector& vals) {
+        const size_t idx = getIndex(i, j, k);
+        _rho[idx]  = vals[0];
+        _rhoU[idx] = vals[1];
+        _rhoV[idx] = vals[2];
+        _rhoW[idx] = vals[3];
+        _rhoE[idx] = vals[4];
+    }
+
+    inline void set(size_t idx, const StateVector& vals) {
+        _rho[idx]  = vals[0];
+        _rhoU[idx] = vals[1];
+        _rhoV[idx] = vals[2];
+        _rhoW[idx] = vals[3];
+        _rhoE[idx] = vals[4];
+    }
+
+    inline void set(size_t i, size_t j, size_t k, const size_t iVar, FloatType val) {
+        const size_t idx = getIndex(i, j, k);
         switch (iVar)
         {
         case 0:
-            _rho(i,j,k) = val;
+            _rho[idx] = val;
             break;
         case 1:
-            _rhoU(i,j,k) = val;
+            _rhoU[idx] = val;
             break;
         case 2:
-            _rhoV(i,j,k) = val;
+            _rhoV[idx] = val;
             break;
         case 3:
-            _rhoW(i,j,k) = val;
+            _rhoW[idx] = val;
             break;
         case 4:
-            _rhoE(i,j,k) = val;
+            _rhoE[idx] = val;
             break;
         default:
             break;

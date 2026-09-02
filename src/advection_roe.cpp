@@ -8,7 +8,7 @@ StateVector AdvectionRoe::computeFlux(
     const StateVector& Ul,
     const StateVector& Ur,
     const StateVector& Urr,
-    const Vector3D& S)
+    const Vector3D& S) const
 {
     StateVector Wl = getPrimitiveVariablesFromConservative(Ul);
     StateVector Wr = getPrimitiveVariablesFromConservative(Ur);

@@ -13,7 +13,7 @@ public:
         const StateVector& Ul,
         const StateVector& Ur,
         const StateVector& Urr,
-        const Vector3D& S) override;
+        const Vector3D& S) const override;
 
 private:
     struct RoeState {
