@@ -51,7 +51,7 @@ public:
         return _wallDistance;
     }
 
-    inline Matrix3D<Vector3D> getVertices() const {
+    inline const Matrix3D<Vector3D>& getVertices() const {
         return _mesh.getVertices();
     }
 

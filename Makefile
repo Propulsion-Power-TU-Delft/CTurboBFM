@@ -9,13 +9,16 @@ BIN_DIR := bin
 PROFILE_LIB_PATH := /opt/homebrew/opt/gperftools/lib
 PROFILE_INCLUDE_PATH := /opt/homebrew/opt/gperftools/include
 
+OMP_LIB_PATH := /opt/homebrew/opt/libomp/lib
+OMP_INCLUDE_PATH := /opt/homebrew/opt/libomp/include
+
 # ==========================================================
 # Compiler and flags
 # ==========================================================
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR)
+CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH)
 
-LDFLAGS  :=
+LDFLAGS  := -L$(OMP_LIB_PATH) -lomp
 
 # Build-type specific flags
 DEBUG_FLAGS   := -g -O0

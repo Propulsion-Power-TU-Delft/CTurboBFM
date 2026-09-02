@@ -14,46 +14,50 @@ public:
         const StateVector& Ur,
         const StateVector& Urr,
         const Vector3D& S) override;
-    
+
+private:
+    struct RoeState {
+        Vector3D n1, n2, n3;
+        FloatType rhoAVG{0}, u1AVG{0}, u2AVG{0}, u3AVG{0}, htAVG{0}, aAVG{0};
+        StateVector eigenvalues{};
+        std::array<StateVector, 5> eigenvectors{};
+        StateVector waveStrengths{};
+    };
+
     /** 
      * @brief Computes the orthonormal triad (normal, tangential, binormal) associated with the surface vector S.
      * The normal is aligned with S (left-to-right orientation).
      * */ 
-    void computeNormalTriad(const Vector3D& S);
+    void computeNormalTriad(const Vector3D& S, RoeState& state) const;
 
     /**
      * @brief Rotate the primitive variables into the local coordinate system defined by the normal triad.
      */
-    StateVector computeRotatedPrimitive(const StateVector& W) const;
+    StateVector computeRotatedPrimitive(const StateVector& W, const RoeState& state) const;
 
-    void computeRoeAvgVariables(const StateVector& WnormL, const StateVector& WnormR);
+    void computeRoeAvgVariables(const StateVector& WnormL, const StateVector& WnormR, RoeState& state) const;
 
     /**
      * @brief Compute Roe avg values of variable phi.
      */
-    FloatType roeAverage(FloatType& rhoL, FloatType& rhoR, FloatType& phiL, FloatType& phiR) const ;
+    FloatType roeAverage(FloatType rhoL, FloatType rhoR, FloatType phiL, FloatType phiR) const;
 
-    void computeEigenvalues();
+    void computeEigenvalues(RoeState& state) const;
 
-    void computeEigenvectors();
+    void computeEigenvectors(RoeState& state) const;
 
-    void computeWaveStrengths(const StateVector& WnormL, const StateVector& WnormR);
+    void computeWaveStrengths(const StateVector& WnormL, const StateVector& WnormR, RoeState& state) const;
 
     void assembleTotalFlux(
         const Vector3D& S, 
         const StateVector& WnormL, 
         const StateVector& WnormR, 
-        StateVector& flux) const;
+        StateVector& flux,
+        const RoeState& state) const;
 
 private:
-        Vector3D _xVersor {1.0, 0.0, 0.0}; 
-        Vector3D _yVersor {0.0, 1.0, 0.0}; 
-        Vector3D _zVersor {0.0, 0.0, 1.0};
-        Vector3D _n1, _n2, _n3; // normal, tangential, binormal versors
-        FloatType _rhoAVG, _u1AVG, _u2AVG, _u3AVG, _htAVG, _aAVG;
-        StateVector _eigenvalues;
-        std::array<StateVector, 5> _eigenvectors;
-        StateVector _waveStrengths;
-        FloatType _entropyFixCoefficient {0.01}; // default value
-        
+    Vector3D _xVersor {1.0, 0.0, 0.0}; 
+    Vector3D _yVersor {0.0, 1.0, 0.0}; 
+    Vector3D _zVersor {0.0, 0.0, 1.0};
+    FloatType _entropyFixCoefficient {0.01}; // default value
 };

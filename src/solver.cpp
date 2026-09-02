@@ -1077,16 +1077,11 @@ void Solver::printLogResidualsHeader() const {
 
 void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatType> &timestep){
     FloatType cflMax = _config.getCFL();
-    Vector3D iEdge, jEdge, kEdge;
-    Vector3D iDir, jDir, kDir;
-    Vector3D velocity;
-    FloatType rho, temperature;
-    StateVector primitive, conservative;
-    FloatType dtMin;
     bool isViscosityActive = _config.isViscosityActive();
 
     if (_config.getTimeStepMethod() == TimeStepMethod::FIXED){
-        dtMin = _config.getFixedTimeStep();
+        FloatType dtMin = _config.getFixedTimeStep();
+        #pragma omp parallel for collapse(2) schedule(static)
         for (size_t i=0; i<_nPointsI; i++) {
             for (size_t j=0; j<_nPointsJ; j++){
                 for (size_t k=0; k<_nPointsK; k++){
@@ -1097,29 +1092,29 @@ void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatTy
         return;
     }
 
+    #pragma omp parallel for collapse(2) schedule(static)
     for (size_t i=0; i<_nPointsI; i++) {
         for (size_t j=0; j<_nPointsJ; j++) {
             for (size_t k=0; k<_nPointsK; k++) {
 
+                Vector3D iEdge, jEdge, kEdge;
                 _mesh.getElementEdges(i,j,k,iEdge,jEdge,kEdge);
 
                 FloatType dsI = iEdge.magnitude();
                 FloatType dsJ = jEdge.magnitude();
                 FloatType dsK = kEdge.magnitude();
 
-                iDir = iEdge / dsI;
-                jDir = jEdge / dsJ;
-                kDir = kEdge / dsK;
+                Vector3D iDir = iEdge / dsI;
+                Vector3D jDir = jEdge / dsJ;
+                Vector3D kDir = kEdge / dsK;
 
-                conservative = solution.at(i,j,k);
-                primitive = getPrimitiveVariablesFromConservative(conservative);
+                StateVector conservative = solution.at(i,j,k);
+                StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
 
-                velocity(0) = primitive[1];
-                velocity(1) = primitive[2];
-                velocity(2) = primitive[3];
+                Vector3D velocity(primitive[1], primitive[2], primitive[3]);
 
-                rho = primitive[0];
-                temperature = _fluid->computeTemperature_rho_u_et(primitive[0], velocity, primitive[4]);
+                FloatType rho = primitive[0];
+                FloatType temperature = _fluid->computeTemperature_rho_u_et(primitive[0], velocity, primitive[4]);
 
                 FloatType a = _fluid->computeSoundSpeed_rho_u_et(
                                 primitive[0],
@@ -1166,7 +1161,8 @@ void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatTy
 
     // if time step method is global, the transient is coherent, and dt must be the same for every cell
     if (_config.getTimeStepMethod() == TimeStepMethod::GLOBAL){
-        dtMin = timestep.min();
+        FloatType dtMin = timestep.min();
+        #pragma omp parallel for collapse(2) schedule(static)
         for (size_t i=0; i<_nPointsI; i++) {
             for (size_t j=0; j<_nPointsJ; j++){
                 for (size_t k=0; k<_nPointsK; k++){
@@ -1358,143 +1354,168 @@ void Solver::computeAdvectionFluxResiduals(
     const Matrix3D<Vector3D>& midPoints = _mesh.getMidPoints(direction);
     const Matrix3D<std::shared_ptr<BoundaryBase>>& boundaryConditionMap = getBoundaryConditionsMap(direction);
     
-    StateVector Uinternal{}, Uleft{}, Uright{}, Uleftleft {}, Urightright {}, flux {};
-    Vector3D surface {}, midPoint {};
-
     size_t ni = surfaces.sizeI(); 
     size_t nj = surfaces.sizeJ(); 
     size_t nk = surfaces.sizeK();
-    for (size_t iFace = 0; iFace < ni; ++iFace) {
+
+    auto processFace = [&](size_t iFace, size_t jFace, size_t kFace) {
+        size_t dirFace = 0;
+        size_t stopFace = 0;
+        switch (direction)
+        {
+        case (FluxDirection::I):
+            dirFace = iFace;
+            stopFace = ni-1;
+            break;
+        case (FluxDirection::J):
+            dirFace = jFace;
+            stopFace = nj-1;
+            break;
+        case (FluxDirection::K):
+            dirFace = kFace;
+            stopFace = nk-1;
+            break;
+        default:
+            throw std::runtime_error("Invalid FluxDirection.");
+        }
+
+        if (direction == FluxDirection::K && _isBfmActive) {
+            // don't compute the flux in the circumferential direction if the blade is present
+            FloatType bladeIsPresent = _mesh.getInputFields(InputField::BLADE_PRESENT, iFace, jFace, 0);
+            if (bladeIsPresent > 0.0) {
+                return; 
+            }
+        }
+        
+        if (dirFace == 0) { // starting boundary fluxes
+            StateVector Uinternal = solution.at(iFace, jFace, kFace);
+            Vector3D surface = -surfaces(iFace, jFace, kFace); // outward point
+            Vector3D midPoint = midPoints(iFace, jFace, kFace);
+            StateVector flux = boundaryConditionMap(iFace, jFace, kFace)->computeBoundaryFlux(
+                Uinternal, 
+                surface, 
+                midPoint, 
+                {iFace, jFace, kFace}, 
+                solution, 
+                itCounter);
+            residuals.add(iFace, jFace, kFace, flux * surface.magnitude());
+        }
+        else if (dirFace == stopFace) { // ending boundary fluxes
+            StateVector Uinternal = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
+            Vector3D surface = surfaces(iFace, jFace, kFace); // outward pointing
+            Vector3D midPoint = midPoints(iFace, jFace, kFace);
+            size_t ii = iFace-1*stepMask[0];
+            size_t jj = jFace-1*stepMask[1];
+            size_t kk = kFace-1*stepMask[2];
+            switch (direction)
+            {                    
+            case (FluxDirection::I):
+                ii = 1;
+                break;
+            case (FluxDirection::J):
+                jj = 1;
+                break;
+            case (FluxDirection::K):
+                kk = 1;
+                break;
+            default:
+                throw std::runtime_error("Invalid FluxDirection.");
+            }
+            StateVector flux = boundaryConditionMap(ii, jj, kk)->computeBoundaryFlux(
+                Uinternal, 
+                surface, 
+                midPoint, 
+                {iFace, jFace, kFace}, 
+                solution, 
+                itCounter);
+            residuals.add(
+                iFace-1*stepMask[0], 
+                jFace-1*stepMask[1], 
+                kFace-1*stepMask[2], 
+                flux * surface.magnitude());
+        } 
+        else { // flux across internal faces
+            StateVector Uleft = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
+            StateVector Uright = solution.at(iFace, jFace, kFace);
+            StateVector Uleftleft{}, Urightright{};
+
+            // get the extended stencil of values used for muscl reconstruction
+            if (direction==FluxDirection::K && _mesh.isPeriodicityActive()){ 
+                if (dirFace==1){                                                    // first internal element
+                    Uleftleft = solution.at(iFace , jFace , nk-3);                  // last internal element
+                    Uleftleft = rotateStateVectorAlongXAxis(Uleftleft, -_mesh.getPeriodicityAngleRad());
+                    Urightright = solution.at(iFace , jFace, kFace+1);              // second internal element
+                }
+                else if (dirFace==stopFace-1){ 
+                    Uleftleft = solution.at(iFace, jFace, kFace-2);             // last-1 internal element
+                    Urightright = solution.at(iFace, jFace, 1);                 // first internal element
+                    Urightright = rotateStateVectorAlongXAxis(Urightright, _mesh.getPeriodicityAngleRad());
+                }
+                else {
+                    Uleftleft = solution.at(iFace-2*stepMask[0], jFace-2*stepMask[1], kFace-2*stepMask[2]);
+                    Urightright = solution.at(iFace+1*stepMask[0], jFace+1*stepMask[1], kFace+1*stepMask[2]);
+                }
+            }
+            else { // normal topology -> plain extrapolation for elements close to boundaries
+                if (dirFace==1){ 
+                    Uleftleft = Uleft - (Uright - Uleft); 
+                    Urightright = solution.at(iFace+1*stepMask[0], jFace+1*stepMask[1], kFace+1*stepMask[2]);
+                }
+                else if (dirFace==stopFace-1){ 
+                    Uleftleft = solution.at(iFace-2*stepMask[0], jFace-2*stepMask[1], kFace-2*stepMask[2]);
+                    Urightright = Uright + (Uright - Uleft); 
+                }
+                else {
+                    Uleftleft = solution.at(iFace-2*stepMask[0], jFace-2*stepMask[1], kFace-2*stepMask[2]);
+                    Urightright = solution.at(iFace+1*stepMask[0], jFace+1*stepMask[1], kFace+1*stepMask[2]);
+                }
+            }
+
+            Vector3D surface = surfaces(iFace, jFace, kFace); // outward pointing with respect to the left cell
+            StateVector flux = _advection->computeFlux(Uleftleft, Uleft, Uright, Urightright, surface);
+            residuals.add(
+                iFace-1*stepMask[0], 
+                jFace-1*stepMask[1], 
+                kFace-1*stepMask[2], 
+                flux * surface.magnitude());
+            residuals.subtract(
+                iFace, 
+                jFace, 
+                kFace, 
+                flux * surface.magnitude());
+        }
+    };
+
+    if (direction == FluxDirection::I) {
+        #pragma omp parallel for collapse(2) schedule(static)
         for (size_t jFace = 0; jFace < nj; ++jFace) {
             for (size_t kFace = 0; kFace < nk; ++kFace) {
-                size_t dirFace = 0;
-                size_t stopFace = 0;
-                switch (direction)
-                {
-                case (FluxDirection::I):
-                    dirFace = iFace;
-                    stopFace = ni-1;
-                    break;
-                case (FluxDirection::J):
-                    dirFace = jFace;
-                    stopFace = nj-1;
-                    break;
-                case (FluxDirection::K):
-                    dirFace = kFace;
-                    stopFace = nk-1;
-                    break;
-                default:
-                    throw std::runtime_error("Invalid FluxDirection.");
-                }
-
-                if (direction == FluxDirection::K && _isBfmActive) {
-                    // don't compute the flux in the circumferential direction if the blade is present
-                    FloatType bladeIsPresent = _mesh.getInputFields(InputField::BLADE_PRESENT, iFace, jFace, 0);
-                    if (bladeIsPresent > 0.0) {
-                        continue; 
-                    }
-                }
-                
-                if (dirFace == 0) { // starting boundary fluxes
-                    Uinternal = solution.at(iFace, jFace, kFace);
-                    surface = -surfaces(iFace, jFace, kFace); // outward point
-                    midPoint = midPoints(iFace, jFace, kFace);
-                    flux = boundaryConditionMap(iFace, jFace, kFace)->computeBoundaryFlux(
-                        Uinternal, 
-                        surface, 
-                        midPoint, 
-                        {iFace, jFace, kFace}, 
-                        solution, 
-                        itCounter);
-                    residuals.add(iFace, jFace, kFace, flux * surface.magnitude());
-                }
-                else if (dirFace == stopFace) { // ending boundary fluxes
-                    Uinternal = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
-                    surface = surfaces(iFace, jFace, kFace); // outward pointing
-                    midPoint = midPoints(iFace, jFace, kFace);
-                    size_t ii = iFace-1*stepMask[0];
-                    size_t jj = jFace-1*stepMask[1];
-                    size_t kk = kFace-1*stepMask[2];
-                    switch (direction)
-                    {                    
-                    case (FluxDirection::I):
-                        ii = 1;
-                        break;
-                    case (FluxDirection::J):
-                        jj = 1;
-                        break;
-                    case (FluxDirection::K):
-                        kk = 1;
-                        break;
-                    default:
-                        throw std::runtime_error("Invalid FluxDirection.");
-                    }
-                    flux = boundaryConditionMap(ii, jj, kk)->computeBoundaryFlux(
-                        Uinternal, 
-                        surface, 
-                        midPoint, 
-                        {iFace, jFace, kFace}, 
-                        solution, 
-                        itCounter);
-                    residuals.add(
-                        iFace-1*stepMask[0], 
-                        jFace-1*stepMask[1], 
-                        kFace-1*stepMask[2], 
-                        flux * surface.magnitude());
-                } 
-                else { // flux across internal faces
-                    Uleft = solution.at(iFace-1*stepMask[0], jFace-1*stepMask[1], kFace-1*stepMask[2]);
-                    Uright = solution.at(iFace, jFace, kFace);
-
-                    // get the extended stencil of values used for muscl reconstruction
-                    if (direction==FluxDirection::K && _mesh.isPeriodicityActive()){ 
-                        if (dirFace==1){                                                    // first internal element
-                            Uleftleft = solution.at(iFace , jFace , nk-3);                  // last internal element
-                            Uleftleft = rotateStateVectorAlongXAxis(Uleftleft, -_mesh.getPeriodicityAngleRad());
-                            Urightright = solution.at(iFace , jFace, kFace+1);              // second internal element
-                        }
-                        else if (dirFace==stopFace-1){ 
-                            Uleftleft = solution.at(iFace, jFace, kFace-2);             // last-1 internal element
-                            Urightright = solution.at(iFace, jFace, 1);                 // first internal element
-                            Urightright = rotateStateVectorAlongXAxis(Urightright, _mesh.getPeriodicityAngleRad());
-                        }
-                        else {
-                            Uleftleft = solution.at(iFace-2*stepMask[0], jFace-2*stepMask[1], kFace-2*stepMask[2]);
-                            Urightright = solution.at(iFace+1*stepMask[0], jFace+1*stepMask[1], kFace+1*stepMask[2]);
-                        }
-                    }
-                    else { // normal topology -> plain extrapolation for elements close to boundaries
-                        if (dirFace==1){ 
-                        Uleftleft = Uleft - (Uright - Uleft); 
-                        Urightright = solution.at(iFace+1*stepMask[0], jFace+1*stepMask[1], kFace+1*stepMask[2]);
-                        }
-                        else if (dirFace==stopFace-1){ 
-                            Uleftleft = solution.at(iFace-2*stepMask[0], jFace-2*stepMask[1], kFace-2*stepMask[2]);
-                            Urightright = Uright + (Uright - Uleft); 
-                        }
-                        else {
-                            Uleftleft = solution.at(iFace-2*stepMask[0], jFace-2*stepMask[1], kFace-2*stepMask[2]);
-                            Urightright = solution.at(iFace+1*stepMask[0], jFace+1*stepMask[1], kFace+1*stepMask[2]);
-                        }
-                    }
-        
-                    surface = surfaces(iFace, jFace, kFace); // outward pointing with respect to the left cell
-                    flux = _advection->computeFlux(Uleftleft, Uleft, Uright, Urightright, surface);
-                    residuals.add(
-                        iFace-1*stepMask[0], 
-                        jFace-1*stepMask[1], 
-                        kFace-1*stepMask[2], 
-                        flux * surface.magnitude());
-                    residuals.subtract(
-                        iFace, 
-                        jFace, 
-                        kFace, 
-                        flux * surface.magnitude());
+                for (size_t iFace = 0; iFace < ni; ++iFace) {
+                    processFace(iFace, jFace, kFace);
                 }
             }
         }
     }
-    
+    else if (direction == FluxDirection::J) {
+        #pragma omp parallel for collapse(2) schedule(static)
+        for (size_t iFace = 0; iFace < ni; ++iFace) {
+            for (size_t kFace = 0; kFace < nk; ++kFace) {
+                for (size_t jFace = 0; jFace < nj; ++jFace) {
+                    processFace(iFace, jFace, kFace);
+                }
+            }
+        }
+    }
+    else { // FluxDirection::K
+        #pragma omp parallel for collapse(2) schedule(static)
+        for (size_t iFace = 0; iFace < ni; ++iFace) {
+            for (size_t jFace = 0; jFace < nj; ++jFace) {
+                for (size_t kFace = 0; kFace < nk; ++kFace) {
+                    processFace(iFace, jFace, kFace);
+                }
+            }
+        }
+    }
 }
 
 

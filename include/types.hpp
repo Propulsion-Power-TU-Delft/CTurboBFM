@@ -887,22 +887,34 @@ struct FlowSolution {
         return *this;
     }
 
-    FlowSolution& operator*(const Matrix3D<FloatType>& other) {
+    FlowSolution& operator*=(const Matrix3D<FloatType>& other) {
         _rho  *= other;
-        _rhoU += other;
-        _rhoV += other;
-        _rhoW += other;
-        _rhoE += other;
+        _rhoU *= other;
+        _rhoV *= other;
+        _rhoW *= other;
+        _rhoE *= other;
         return *this;
     }
 
-    FlowSolution& operator/(const Matrix3D<FloatType>& other) {
+    FlowSolution operator*(const Matrix3D<FloatType>& other) const {
+        FlowSolution result = *this;
+        result *= other;
+        return result;
+    }
+
+    FlowSolution& operator/=(const Matrix3D<FloatType>& other) {
         _rho  /= other;
         _rhoU /= other;
         _rhoV /= other;
         _rhoW /= other;
         _rhoE /= other;
         return *this;
+    }
+
+    FlowSolution operator/(const Matrix3D<FloatType>& other) const {
+        FlowSolution result = *this;
+        result /= other;
+        return result;
     }
 
     FlowSolution operator-(const FlowSolution& other) const {

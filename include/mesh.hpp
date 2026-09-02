@@ -53,7 +53,7 @@ public:
         return _centersK;
     }
     
-    const Matrix3D<Vector3D> getVertices() const {
+    const Matrix3D<Vector3D>& getVertices() const {
         return _vertices;
     }
 
@@ -69,11 +69,11 @@ public:
         return std::atan2(_vertices(i,j,k).z(), _vertices(i,j,k).y());
     }
     
-    const Matrix3D<Vector3D> getDualNodes() const {
+    const Matrix3D<Vector3D>& getDualNodes() const {
         return _dualNodes;
     }
     
-    const Matrix3D<FloatType> getVolumes() const {
+    const Matrix3D<FloatType>& getVolumes() const {
         return _volumes;
     }
 

@@ -186,6 +186,7 @@ void computeGradientGreenGauss(
     size_t nj = volumes.sizeJ();
     size_t nk = volumes.sizeK();
 
+    #pragma omp parallel for collapse(2) schedule(static)
     for (size_t i = 0; i < ni; i++){
         for (size_t j = 0; j < nj; j++){
             for (size_t k = 0; k < nk; k++){

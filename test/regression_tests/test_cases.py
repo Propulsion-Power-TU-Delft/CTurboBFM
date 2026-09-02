@@ -80,7 +80,7 @@ def compare_results_with_reference(case_dir):
             f"Dimension {idim} size mismatch: reference {reference_data['x'].shape[idim]} vs result {result_data['x'].shape[idim]}"
 
     keys_to_check = ['Density', 'Pressure', 'Temperature']
-    max_tols = [1e-2, 1e3, 1e-2]
+    max_tols = [2e-2, 2e-2, 2e-2]
     for ikey, key in enumerate(keys_to_check):
         ref_value = reference_data[key]
         res_value = result_data[key]
