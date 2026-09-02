@@ -86,7 +86,8 @@ void TurbulenceModelSA::updateBoundaryValues(const FlowSolution &sol) {
             boundary.type == BoundaryType::RADIAL_EQUILIBRIUM || 
             boundary.type == BoundaryType::THROTTLE ||
             boundary.type == BoundaryType::OUTLET_SUPERSONIC ||
-            boundary.type == BoundaryType::INVISCID_WALL){ 
+            boundary.type == BoundaryType::INVISCID_WALL ||
+            boundary.type == BoundaryType::TRANSPARENT){ 
             enforceOutletCondition(boundary, sol);
         }
         else {
@@ -340,15 +341,36 @@ FloatType TurbulenceModelSA::computeViscousFlux(
         const std::array<size_t, 3> &idxRight,
         const Vector3D &surface) {
 
-    // follow notation blazek pag 228
     Vector3D n = surface.normalized();
     
-    Vector3D tauLeft = _nuHatGrad(idxLeft[0], idxLeft[1], idxLeft[2]) / _sigma * (
-        _nuLaminar(idxLeft[0], idxLeft[1], idxLeft[2]) + _nuHat(idxLeft[0], idxLeft[1], idxLeft[2]));
-    
-    Vector3D tauRight = _nuHatGrad(idxRight[0], idxRight[1], idxRight[2]) / _sigma * (
-        _nuLaminar(idxRight[0], idxRight[1], idxRight[2]) + _nuHat(idxRight[0], idxRight[1], idxRight[2]));
-    
+    // Left state
+    FloatType nuL_left = _nuLaminar(idxLeft[0], idxLeft[1], idxLeft[2]);
+    FloatType nuHat_left = _nuHat(idxLeft[0], idxLeft[1], idxLeft[2]);
+    FloatType nuTotal_left;
+    if (nuHat_left >= 0.0) {
+        nuTotal_left = nuL_left + nuHat_left;
+    } else {
+        FloatType chi = (nuL_left > 0.0) ? (nuHat_left / nuL_left) : 0.0;
+        FloatType chi3 = chi * chi * chi;
+        FloatType fn = (_cn1 + chi3) / (_cn1 - chi3);
+        nuTotal_left = nuL_left + nuHat_left * fn;
+    }
+    Vector3D tauLeft = (_nuHatGrad(idxLeft[0], idxLeft[1], idxLeft[2]) / _sigma) * nuTotal_left;
+
+    // Right state
+    FloatType nuL_right = _nuLaminar(idxRight[0], idxRight[1], idxRight[2]);
+    FloatType nuHat_right = _nuHat(idxRight[0], idxRight[1], idxRight[2]);
+    FloatType nuTotal_right;
+    if (nuHat_right >= 0.0) {
+        nuTotal_right = nuL_right + nuHat_right;
+    } else {
+        FloatType chi = (nuL_right > 0.0) ? (nuHat_right / nuL_right) : 0.0;
+        FloatType chi3 = chi * chi * chi;
+        FloatType fn = (_cn1 + chi3) / (_cn1 - chi3);
+        nuTotal_right = nuL_right + nuHat_right * fn;
+    }
+    Vector3D tauRight = (_nuHatGrad(idxRight[0], idxRight[1], idxRight[2]) / _sigma) * nuTotal_right;
+
     FloatType flux = 0.5 * (tauLeft + tauRight).dot(n);
     return flux;
 }
@@ -374,58 +396,104 @@ FloatType TurbulenceModelSA::computeSource(
     const FlowSolution &sol, 
     const std::map<SolutionName, Matrix3D<Vector3D>> &solGrad){
     
-    if (_wallDistance(idx[0], idx[1], idx[2]) == 0.0){
-        return 0.0;
-    }
-    
     size_t i = idx[0];
     size_t j = idx[1];
     size_t k = idx[2];
+
+    FloatType d = _wallDistance(i, j, k);
+    if (d <= 0.0){
+        return 0.0;
+    }
     
-    FloatType chi = _nuHat(i,j,k) / _nuLaminar(i,j,k);
-    
-    _fv1(i,j,k) = (chi*chi*chi) / (chi*chi*chi + _cv1*_cv1*_cv1);
-    
-    FloatType fv2 = std::pow(1.0+chi/_cv2, -3.0);
-    
-    FloatType fv3 = (1.0 + chi*_fv1(i,j,k)) * (1.0 - fv2) / std::max(chi, 0.001);
-    
-    FloatType S = computeRotationRateMagnitude(
-        solGrad.at(SolutionName::VELOCITY_X)(i,j,k),
-        solGrad.at(SolutionName::VELOCITY_Y)(i,j,k),
-        solGrad.at(SolutionName::VELOCITY_Z)(i,j,k)
+    FloatType nuHat = _nuHat(i, j, k);
+    FloatType nuL = _nuLaminar(i, j, k);
+    if (nuL <= 0.0) {
+        nuL = 1e-14;
+    }
+
+    FloatType S_vort = computeRotationRateMagnitude(
+        solGrad.at(SolutionName::VELOCITY_X)(i, j, k),
+        solGrad.at(SolutionName::VELOCITY_Y)(i, j, k),
+        solGrad.at(SolutionName::VELOCITY_Z)(i, j, k)
     );
-    
-    FloatType Shat = fv3*S + _nuHat(i,j,k)*fv2 / (_kappa*_kappa * _wallDistance(i,j,k)*_wallDistance(i,j,k));
-    
-    FloatType ft2 = _ct3 * std::exp(-_ct4*chi*chi);
 
-    FloatType r = _nuHat(i,j,k) / (Shat * _kappa*_kappa * _wallDistance(i,j,k)*_wallDistance(i,j,k));
+    FloatType gradNuHatSq = _nuHatGrad(i, j, k).x() * _nuHatGrad(i, j, k).x() +
+                            _nuHatGrad(i, j, k).y() * _nuHatGrad(i, j, k).y() +
+                            _nuHatGrad(i, j, k).z() * _nuHatGrad(i, j, k).z();
 
-    FloatType g = r + _cw2*(std::pow(r,6.0) - r);
+    FloatType crossDiff = (_cb2 / _sigma) * gradNuHatSq;
 
-    FloatType fw = g * std::pow(
-        (1.0 + std::pow(_cw3, 6.0)) / (std::pow(g, 6.0) + std::pow(_cw3, 6.0)),
-        1.0 / 6.0);
+    if (nuHat >= 0.0) {
+        FloatType chi = nuHat / nuL;
+        FloatType chi3 = chi * chi * chi;
+        FloatType cv1_3 = _cv1 * _cv1 * _cv1;
+        FloatType fv1 = chi3 / (chi3 + cv1_3);
+        _fv1(i, j, k) = fv1;
 
-    FloatType Qt = _cb1*(1.0-ft2)*Shat*_nuHat(i,j,k) + _cb2/_sigma*(
-        _nuHatGrad(i,j,k).x() * _nuHatGrad(i,j,k).x() +
-        _nuHatGrad(i,j,k).y() * _nuHatGrad(i,j,k).y() +
-        _nuHatGrad(i,j,k).z() * _nuHatGrad(i,j,k).z()
-        ) - (_cw1*fw - _cb1*ft2/_kappa/_kappa) * std::pow(_nuHat(i,j,k)/_wallDistance(i,j,k), 2.0); 
-    
-    return Qt;
+        FloatType fv2 = 1.0 - chi / (1.0 + chi * fv1);
+
+        FloatType dSq = d * d;
+        FloatType kappaSq_dSq = _kappa * _kappa * dSq;
+
+        FloatType Sbar = (nuHat / kappaSq_dSq) * fv2;
+        FloatType Shat;
+        if (Sbar >= -_c2 * S_vort) {
+            Shat = S_vort + Sbar;
+        } else {
+            Shat = S_vort + (S_vort * (_c2 * _c2 * S_vort + _c3 * Sbar)) / ((_c3 - 2.0 * _c2) * S_vort - Sbar);
+        }
+
+        FloatType r;
+        if (Shat * kappaSq_dSq <= 0.0) {
+            r = 10.0;
+        } else {
+            r = std::min(nuHat / (Shat * kappaSq_dSq), (FloatType)10.0);
+        }
+
+        FloatType r2 = r * r;
+        FloatType r6 = r2 * r2 * r2;
+        FloatType g = r + _cw2 * (r6 - r);
+        FloatType g6 = std::pow(g, 6.0);
+        FloatType cw3_6 = std::pow(_cw3, 6.0);
+        FloatType fw = g * std::pow((1.0 + cw3_6) / (g6 + cw3_6), 1.0 / 6.0);
+
+        FloatType ft2 = _ct3 * std::exp(-_ct4 * chi * chi);
+
+        FloatType P = _cb1 * (1.0 - ft2) * Shat * nuHat;
+        FloatType D = (_cw1 * fw - (_cb1 / (_kappa * _kappa)) * ft2) * (nuHat * nuHat / dSq);
+
+        FloatType Qt = P - D + crossDiff;
+        return Qt;
+    } else {
+        _fv1(i, j, k) = 0.0;
+
+        FloatType dSq = d * d;
+        FloatType P_neg = _cb1 * (1.0 - _ct3) * S_vort * nuHat;
+        FloatType D_neg = _cw1 * (nuHat * nuHat / dSq);
+
+        FloatType Qt = P_neg + D_neg + crossDiff;
+        return Qt;
+    }
 }
-
-
 
 void TurbulenceModelSA::updateSolution(const Matrix3D<FloatType> &residual, const Matrix3D<FloatType> &dt){
     Matrix3D<FloatType> volume = _mesh.getVolumes();
     _nuHat -= residual * dt / volume;
 }
 
-
 FloatType TurbulenceModelSA::getEddyViscosity(const FloatType &density, size_t i, size_t j, size_t k) const {
-    FloatType mu = _fv1(i,j,k) * density * _nuHat(i,j,k);
+    FloatType nuHat = _nuHat(i, j, k);
+    if (nuHat <= 0.0) {
+        return 0.0;
+    }
+    FloatType nuL = _nuLaminar(i, j, k);
+    if (nuL <= 0.0) {
+        return 0.0;
+    }
+    FloatType chi = nuHat / nuL;
+    FloatType chi3 = chi * chi * chi;
+    FloatType cv1_3 = _cv1 * _cv1 * _cv1;
+    FloatType fv1 = chi3 / (chi3 + cv1_3);
+    FloatType mu = fv1 * density * nuHat;
     return mu;
 }

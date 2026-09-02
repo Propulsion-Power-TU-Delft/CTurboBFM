@@ -87,9 +87,11 @@ private:
     const FloatType _cw2 = 0.3;
     const FloatType _cw3 = 2.0;
     const FloatType _cv1 = 7.1;
-    const FloatType _cv2 = 5.0;
     const FloatType _ct3 = 1.2; // nasa 1.2, blazek 1.3
     const FloatType _ct4 = 0.5;
+    const FloatType _cn1 = 16.0;
+    const FloatType _c2 = 0.7;
+    const FloatType _c3 = 0.9;
     const FloatType _cw1 = _cb1/(_kappa * _kappa) + (1.0 + _cb2) / _sigma;
     const Matrix3D<FloatType> &_wallDistance;
     
