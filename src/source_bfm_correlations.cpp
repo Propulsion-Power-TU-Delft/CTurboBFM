@@ -108,9 +108,11 @@ StateVector SourceBFMCorrelations::computeInviscidComponent(
 
     // find thickness max along the stream
     FloatType thkMax = 0.0;
-    FloatType thkTmp = 0.0;
-    for (size_t i = _leadingEdgeIdx; i < _trailingEdgeIdx; i++) {
-        thkTmp = _tangentialPitch * (1.0 - _blockage);
+    for (size_t streamIdx = _leadingEdgeIdx; streamIdx <= _trailingEdgeIdx; ++streamIdx) {
+        FloatType r = _mesh.getRadius(streamIdx, j, k);
+        FloatType pitch = 2.0 * M_PI * r / _bladesNumber;
+        FloatType blk = _mesh.getInputFields(InputField::BLOCKAGE, streamIdx, j, k);
+        FloatType thkTmp = pitch * (1.0 - blk);
         if (thkTmp > thkMax) {
             thkMax = thkTmp;
         }
@@ -121,8 +123,9 @@ StateVector SourceBFMCorrelations::computeInviscidComponent(
     FloatType Ksh = 0.8; // blade shape factor
     FloatType istar = Ksh*Kti*_incidenceZeroTenThkStar + n*_camberAngleDegAbs;
     
-    FloatType inletMach = _relVelCartesian.magnitude() / 
-        _fluid.computeSoundSpeed_rho_u_et(primitive[0], _relVelCartesian, primitive[4]);
+    Vector3D absVel({primitive[1], primitive[2], primitive[3]});
+    FloatType soundSpeed = _fluid.computeSoundSpeed_rho_u_et(primitive[0], absVel, primitive[4]);
+    FloatType inletMach = _relVelCartesian.magnitude() / soundSpeed;
 
     FloatType istarCorrected = istar + 1.3026*inletMach + 5.7380; // compressibility correction by Cetin
 

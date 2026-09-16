@@ -15,7 +15,11 @@ public:
 
     FloatType computePlenumPressure(FloatType massFlow);
 
-    void initializeState(FloatType plenumPressure, FloatType plenumInletMassflow, FloatType plenumOutletMassflow);
+    void initializeState(
+        FloatType plenumPressure, 
+        FloatType plenumInletMassflow, 
+        FloatType plenumOutletMassflow,
+        FloatType plenumTemperature = 350.0);
 
     FloatType getTime(size_t i) const { return _time.at(i); }
 
@@ -39,4 +43,6 @@ private:
     FloatType _deltaTime = 0.0;
     FloatType _fluidGamma = 1.4; 
     FloatType _fluidRConstant = 287.0;
+    FloatType _plenumTemperature = 350.0;
+    FloatType _ambientPressure = 101325.0;
 };

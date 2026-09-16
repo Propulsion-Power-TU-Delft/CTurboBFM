@@ -35,6 +35,12 @@ StateVector BoundaryInlet2D::computeBoundaryFlux(
     FloatType ny = _inputGrid.getField(InputField::INLET_NY, indices[0], indices[1], indices[2]);
     FloatType nz = _inputGrid.getField(InputField::INLET_NZ, indices[0], indices[1], indices[2]);
     Vector3D flowDirection(nx, ny, nz);
+
+    if (_referenceFrame == ReferenceFrame::CYLINDRICAL){
+        FloatType theta = _mesh.getTheta(indices[0], indices[1], indices[2]);
+        flowDirection = computeCartesianComponentsFromCylindrical(flowDirection, theta);
+    }
+
     flowDirection /= flowDirection.magnitude();
 
     FloatType totalPressure = _inputGrid.getField(InputField::TOTAL_PRESSURE, indices[0], indices[1], indices[2]);

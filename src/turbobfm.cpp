@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
     
     std::unique_ptr<Solver> solver;
     
-    if (kindSolver == KindSolver::EULER) {
+    if (kindSolver == KindSolver::EULER || kindSolver == KindSolver::RANS) {
        solver = std::make_unique<Solver>(config, mesh);
     }
     else {

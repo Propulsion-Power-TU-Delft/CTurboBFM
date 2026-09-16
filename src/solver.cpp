@@ -602,7 +602,11 @@ void Solver::initializeSolutionArrays(){
         StateVector conservativeHubOutlet = _conservativeSolution.at(_nPointsI-1, 0, 0);
         StateVector primitiveHubOutlet = getPrimitiveVariablesFromConservative(conservativeHubOutlet);
         FloatType outletPressureHub = _fluid->computePressure_primitive(primitiveHubOutlet);
-        _greitzerModel->initializeState(outletPressureHub, massflow, massflow);
+        FloatType outletTemperatureHub = _fluid->computeTemperature_rho_u_et(
+            primitiveHubOutlet[0], 
+            {primitiveHubOutlet[1], primitiveHubOutlet[2], primitiveHubOutlet[3]}, 
+            primitiveHubOutlet[4]);
+        _greitzerModel->initializeState(outletPressureHub, massflow, massflow, outletTemperatureHub);
     }
 
     for (auto& radialProfile: _radialEquilibriumProfiles) {
@@ -853,12 +857,16 @@ void Solver::readRestartFile(
     size_t iForceViscousY{UNSET};
     size_t iForceViscousZ{UNSET};
     if (isBfmSimulation){
-        iForceInviscidX = columnIndex["Inviscid Body Force X"];
-        iForceInviscidY = columnIndex["Inviscid Body Force Y"];
-        iForceInviscidZ = columnIndex["Inviscid Body Force Z"];
-        iForceViscousX = columnIndex["Viscous Body Force X"];
-        iForceViscousY = columnIndex["Viscous Body Force Y"];
-        iForceViscousZ = columnIndex["Viscous Body Force Z"];
+        auto getCol = [&columnIndex](const std::string& name) -> size_t {
+            auto it = columnIndex.find(name);
+            return (it != columnIndex.end()) ? it->second : UNSET;
+        };
+        iForceInviscidX = getCol("Inviscid Body Force X");
+        iForceInviscidY = getCol("Inviscid Body Force Y");
+        iForceInviscidZ = getCol("Inviscid Body Force Z");
+        iForceViscousX  = getCol("Viscous Body Force X");
+        iForceViscousY  = getCol("Viscous Body Force Y");
+        iForceViscousZ  = getCol("Viscous Body Force Z");
     }
     
     // Read data
@@ -937,8 +945,9 @@ void Solver::solve(){
         
         // runge-kutta steps
         preprocessSolution(solutionTmp);
+        computeSolutionGradient(solutionTmp, solutionGradTmp);
+        updateTurbulenceSolution(solutionTmp, solutionGradTmp, 1.0, timestep);
         for (const auto &integrationCoeff: timeIntegrationCoeffs){
-            updateTurbulenceSolution(solutionTmp, solutionGradTmp, integrationCoeff, timestep);
             computeSolutionGradient(solutionTmp, solutionGradTmp);
             computeResiduals(solutionTmp, solutionGradTmp, it, _time.back(), timestep, residuals);
             updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
@@ -1048,7 +1057,7 @@ StateVector Solver::computeLogResidualNorm(const FlowSolution &residuals) const 
         if (residualNorm >= minDouble) {
             logResidualNorm[i] = std::log10(residualNorm / (_nPointsI * _nPointsJ * _nPointsK));
         } else {
-            logResidualNorm[i] = 0.0;
+            logResidualNorm[i] = -16.0;
         }
     }
     return logResidualNorm;
@@ -1139,15 +1148,18 @@ void Solver::computeTimestepArray(const FlowSolution &solution, Matrix3D<FloatTy
                 FloatType uj = std::abs(velocity.dot(jDir));
                 FloatType uk = std::abs(velocity.dot(kDir));
 
-                FloatType lambdaConv =
-                    (ui + a)/dsI +
-                    (uj + a)/dsJ +
-                    (uk + a)/dsK;
+                FloatType lambdaConv = (ui + a)/dsI;
+                FloatType invH2 = 1.0/(dsI*dsI);
 
-                FloatType invH2 =
-                    1.0/(dsI*dsI) +
-                    1.0/(dsJ*dsJ) +
-                    1.0/(dsK*dsK);
+                if (_topology != Topology::ONE_DIMENSIONAL){
+                    lambdaConv += (uj + a)/dsJ;
+                    invH2 += 1.0/(dsJ*dsJ);
+                }
+
+                if (_topology == Topology::THREE_DIMENSIONAL){
+                    lambdaConv += (uk + a)/dsK;
+                    invH2 += 1.0/(dsK*dsK);
+                }
 
                 FloatType lambdaVisc =
                     4.0 * (nu + nut) * invH2;
@@ -1682,7 +1694,7 @@ StateVector Solver::computeViscousFlux(
     // total flow quantities
     FloatType muTotal = muL + muEddy;
     FloatType kappaTotal = kappaL + kappaEddy;
-    FloatType secondaryViscosity = -2.0 / 3.0 * muL;
+    FloatType secondaryViscosity = -2.0 / 3.0 * muTotal;
     
     ViscousStressTensor tau = computeViscousStressTensor(muTotal, secondaryViscosity, velXGrad, velYGrad, velZGrad);
     Vector3D tauX = Vector3D(tau.xx, tau.xy, tau.xz);
@@ -1877,6 +1889,10 @@ void Solver::writeMonitorPointsToCsvFile() const {
 void Solver::updateRadialProfiles(FlowSolution &solution){
     StateVector conservative, primitive;
     Vector3D velocityCart, velocityCyl;
+    if (_isGreitzerModelingActive){
+        FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
+        _hubStaticPressure = _greitzerModel->computePlenumPressure(mflow);
+    }
     
     for (auto& radialProfile : _radialEquilibriumProfiles){
         std::vector<FloatType> densityProfile(radialProfile.pressure.size());
@@ -1897,7 +1913,10 @@ void Solver::updateRadialProfiles(FlowSolution &solution){
             velTangProfile[k] = std::abs(velocityCyl.z());
             k++;
         }
-        if (radialProfile.boundary.type == BoundaryType::THROTTLE){
+        if (_isGreitzerModelingActive){
+            // _hubStaticPressure already updated from Greitzer model
+        }
+        else if (radialProfile.boundary.type == BoundaryType::THROTTLE){
             FloatType kt = radialProfile.boundary.values[0];
             FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
             FloatType Pt_in=0.0;
@@ -1921,12 +1940,6 @@ void Solver::updateRadialProfiles(FlowSolution &solution){
             _hubStaticPressure);
         
     }
-
-    if (_isGreitzerModelingActive){
-        FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
-        _hubStaticPressure = _greitzerModel->computePlenumPressure(mflow);
-    }
-
 }
 
 

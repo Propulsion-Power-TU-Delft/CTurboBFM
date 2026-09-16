@@ -188,7 +188,8 @@ void Output::updateSecondaryFields() {
                 vel.z() = _outputFields[VELOCITY_Z](i, j, k);
                 et  = _outputFields[TOTAL_ENERGY](i, j, k);
 
-                _outputFields[MACH](i, j, k) = _fluid.computeMachNumber_rho_u_et(rho, vel, et);
+                FloatType soundSpeed = _fluid.computeSoundSpeed_rho_u_et(rho, vel, et);
+                _outputFields[MACH](i, j, k) = vel.magnitude() / soundSpeed;
                 _outputFields[TOTAL_PRESSURE](i, j, k) = _fluid.computeTotalPressure_rho_u_et(rho, vel, et);
                 _outputFields[TOTAL_TEMPERATURE](i, j, k) = _fluid.computeTotalTemperature_rho_u_et(rho, vel, et);
                 _outputFields[ENTROPY](i, j, k) = _fluid.computeEntropy_rho_u_et(rho, vel, et);
@@ -213,7 +214,7 @@ void Output::updateSecondaryFields() {
                     _outputFields[RELATIVE_VELOCITY_Y](i, j, k) = relVel.y();
                     _outputFields[RELATIVE_VELOCITY_Z](i, j, k) = relVel.z();
 
-                    _outputFields[RELATIVE_MACH](i, j, k) = _fluid.computeMachNumber_rho_u_et(rho, relVel, et);
+                    _outputFields[RELATIVE_MACH](i, j, k) = relVel.magnitude() / soundSpeed;
 
                     _outputFields[VISCOUS_BODY_FORCE_X](i, j, k) = _viscousForce(i, j, k).x();
                     _outputFields[VISCOUS_BODY_FORCE_Y](i, j, k) = _viscousForce(i, j, k).y();
@@ -312,7 +313,7 @@ Vector3D Output::computeWallShearStress(Boundary boundary, size_t i, size_t j, s
     FloatType mu = _outputFields[MOLECULAR_VISCOSITY](i, j, k);
     FloatType muEddy = _outputFields[EDDY_VISCOSITY](i, j, k);
     FloatType muEffective = mu + muEddy;
-    FloatType lambda = -2.0 * mu / 3.0;
+    FloatType lambda = -2.0 * muEffective / 3.0;
     ViscousStressTensor tau = computeViscousStressTensor(
         muEffective,
         lambda,

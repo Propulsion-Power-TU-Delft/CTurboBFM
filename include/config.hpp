@@ -264,7 +264,13 @@ public:
 
     FloatType getKnCorrelationBfmCoefficient() const {return parseFloat("KN_CORRELATION_BFM_COEFFICIENT");}
 
-    FloatType getGreitzerPlenumVolume() const {return parseFloat("GREITZER_PENUM_VOLUME");} 
+    FloatType getGreitzerPlenumVolume() const {
+        return has("GREITZER_PLENUM_VOLUME") ? parseFloat("GREITZER_PLENUM_VOLUME") : parseFloat("GREITZER_PENUM_VOLUME");
+    } 
+
+    FloatType getGreitzerAmbientPressure() const {
+        return parseFloat("GREITZER_AMBIENT_PRESSURE", 101325.0);
+    } 
 
     bool isAccelerationActive() const {return parseBool("ACCELERATION_ACTIVE", false);}
 

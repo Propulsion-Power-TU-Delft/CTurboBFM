@@ -12,13 +12,14 @@ StateVector BoundaryBase::computeSubsonicInletFlux(
     StateVector primitive = getPrimitiveVariablesFromConservative(internalConservative);
     Vector3D velocityInt({primitive[1], primitive[2], primitive[3]});
     FloatType soundSpeedInt = _fluid.computeSoundSpeed_rho_u_et(primitive[0], velocityInt, primitive[4]);
-    FloatType totEnthalpyInt = _fluid.computeTotalEnthalpy_rho_u_et(primitive[0], velocityInt, primitive[4]);
     FloatType Jm = - velocityInt.magnitude() + 2*soundSpeedInt / (_fluid.getGamma() - 1);
 
     // Solve the quadratic equation for the speed of sound
     FloatType alpha = 1.0 / (_fluid.getGamma() - 1.0) + 2.0 / std::pow((_fluid.getGamma() - 1.0), 2);
     FloatType beta = -2.0 * Jm / (_fluid.getGamma() - 1.0);
-    FloatType zeta = 0.5 * Jm * Jm - totEnthalpyInt;
+    FloatType cp = _fluid.getGamma() * _fluid.getRconstant() / (_fluid.getGamma() - 1.0);
+    FloatType totEnthalpyBoundary = cp * totTemperatureBoundary;
+    FloatType zeta = 0.5 * Jm * Jm - totEnthalpyBoundary;
     FloatType soundSpeedBound = std::max((-beta + std::sqrt(beta*beta - 4.0*alpha*zeta))/2.0/alpha,
                                          (-beta - std::sqrt(beta*beta - 4.0*alpha*zeta))/2.0/alpha);
 

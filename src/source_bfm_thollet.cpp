@@ -87,8 +87,13 @@ StateVector SourceBFMThollet::computeViscousComponent(
     FloatType stwl = _mesh.getInputFields(InputField::STREAMWISE_LENGTH, i, j, k);
 
     if (stwl < 1E-06){
-        stwl = (_mesh.getInputFields(InputField::STREAMWISE_LENGTH, i+1, j, k) + 
-        _mesh.getInputFields(InputField::STREAMWISE_LENGTH, i, j, k)) / 2.0 ;
+        if (i + 1 < _mesh.getNumberPointsI()){
+            stwl = (_mesh.getInputFields(InputField::STREAMWISE_LENGTH, i+1, j, k) + 
+                    _mesh.getInputFields(InputField::STREAMWISE_LENGTH, i, j, k)) / 2.0;
+        }
+        if (stwl < 1E-06){
+            stwl = 1E-06;
+        }
     }
 
     FloatType ReX = _relVelCylindric.magnitude() * stwl / nu;

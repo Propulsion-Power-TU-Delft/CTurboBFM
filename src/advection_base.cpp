@@ -32,7 +32,9 @@ StateVector AdvectionBase::computeReconstructionSmoothness(
     StateVector smoothness;
     
     for (std::size_t i = 0; i < 5; ++i) {
-        smoothness[i] = (Wc[i] - Wl[i]) / (Wr[i] - Wc[i] + 1E-8);
+        FloatType dR = Wr[i] - Wc[i];
+        FloatType dL = Wc[i] - Wl[i];
+        smoothness[i] = (std::abs(dR) < 1E-12) ? 0.0 : dL / dR;
     }
 
     return smoothness;
@@ -47,7 +49,8 @@ StateVector AdvectionBase::computeLimiter(const StateVector& smoothness) const{
                 limiter[i] = 0.0;
                 break;
             case FluxLimiter::VAN_ALBADA:
-                limiter[i] = (smoothness[i]*smoothness[i] + smoothness[i]) / (1.0 + smoothness[i]*smoothness[i]);
+                limiter[i] = (smoothness[i] <= 0.0) ? 0.0 :
+                    (smoothness[i]*smoothness[i] + smoothness[i]) / (1.0 + smoothness[i]*smoothness[i]);
                 break;
             case FluxLimiter::VAN_LEER:
                 limiter[i] = (smoothness[i] + std::abs(smoothness[i])) / (1.0 + std::abs(smoothness[i]));
