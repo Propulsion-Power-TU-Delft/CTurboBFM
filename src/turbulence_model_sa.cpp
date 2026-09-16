@@ -1,4 +1,8 @@
 #include "turbulence_model_sa.hpp"
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <unordered_map>
 
 TurbulenceModelSA::TurbulenceModelSA(
     const Config &config, 
@@ -48,21 +52,111 @@ void TurbulenceModelSA::initializeFromZero() {
 }
 
 void TurbulenceModelSA::initializeFromRestartFile() {
-
-    for (size_t i = 0; i < _ni; ++i) {
-        for (size_t j = 0; j < _nj; ++j) {
-            for (size_t k = 0; k < _nk; ++k) {
-                StateVector conservative = _initialSolution.at(i, j, k);
-                StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
-                FloatType temperature = _fluid.computeTemperature_rho_u_et(
-                    primitive[0], 
-                    {primitive[1], primitive[2], primitive[3]}, 
-                    primitive[4]);
-                FloatType nu = _fluid.computeMolecularDynamicViscosity(temperature) / primitive[0];
-                _nuHat(i, j, k) = _initialNuHatScaling * nu;
-            }
-        }
+    std::string restartFileName = _config.getRestartFilepath();
+    std::ifstream file(restartFileName);
+    if (!file.is_open()) {
+        std::cerr << "Warning: Could not open restart file " << restartFileName 
+                  << " for turbulence initialization. Initializing from default.\n";
+        initializeFromZero();
+        return;
     }
+
+    std::string line;
+    size_t NI = 0, NJ = 0, NK = 0;
+
+    // Read NI, NJ, NK
+    std::getline(file, line); NI = std::stoi(line.substr(line.find('=') + 1));
+    std::getline(file, line); NJ = std::stoi(line.substr(line.find('=') + 1));
+    std::getline(file, line); NK = std::stoi(line.substr(line.find('=') + 1));
+
+    std::getline(file, line);
+    std::istringstream headerStream(line);
+    std::string column;
+    std::unordered_map<std::string, size_t> columnIndex;
+    size_t idx = 0;
+    while (std::getline(headerStream, column, ',')) {
+        size_t first = column.find_first_not_of(" \t\r\n");
+        size_t last = column.find_last_not_of(" \t\r\n");
+        if (first != std::string::npos) {
+            column = column.substr(first, last - first + 1);
+        }
+        columnIndex[column] = idx++;
+    }
+
+    bool hasNuTilde = (columnIndex.find("Nu Tilde") != columnIndex.end());
+    bool hasEddyViscosity = (columnIndex.find("Eddy Viscosity") != columnIndex.end());
+
+    size_t iNuTilde = hasNuTilde ? columnIndex["Nu Tilde"] : 0;
+    size_t iEddyVisc = hasEddyViscosity ? columnIndex["Eddy Viscosity"] : 0;
+
+    Matrix3D<FloatType> inputNu(NI, NJ, NK);
+
+    if (hasNuTilde || hasEddyViscosity) {
+        size_t totalPoints = NI * NJ * NK;
+        size_t pointCount = 0;
+
+        while (std::getline(file, line) && pointCount < totalPoints) {
+            if (line.empty() || line[0] == '#') continue;
+            std::istringstream ss(line);
+            std::string value;
+            std::vector<FloatType> row;
+            while (std::getline(ss, value, ',')) {
+                row.push_back(std::stod(value));
+            }
+
+            size_t k = pointCount % NK;
+            size_t j = (pointCount / NK) % NJ;
+            size_t i = pointCount / (NJ * NK);
+
+            if (hasNuTilde && iNuTilde < row.size()) {
+                inputNu(i, j, k) = row[iNuTilde];
+            } else if (hasEddyViscosity && iEddyVisc < row.size()) {
+                FloatType mu_t = row[iEddyVisc];
+                StateVector conservative = _initialSolution.at(
+                    std::min(i, _ni - 1), 
+                    std::min(j, _nj - 1), 
+                    std::min(k, _nk - 1)
+                );
+                StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
+                FloatType rho = primitive[0];
+                FloatType temperature = _fluid.computeTemperature_rho_u_et(
+                    rho, 
+                    {primitive[1], primitive[2], primitive[3]}, 
+                    primitive[4]
+                );
+                FloatType mu_L = _fluid.computeMolecularDynamicViscosity(temperature);
+                inputNu(i, j, k) = reconstructNuTildeFromEddyViscosity(mu_t, mu_L, rho, _cv1);
+            }
+            pointCount++;
+        }
+
+        bool isAxisymmetric = (_config.getRestartType() == "axisymmetric" && NI == _ni && NJ == _nj);
+
+        if (NI == _ni && NJ == _nj && NK == _nk) {
+            _nuHat = inputNu;
+            std::cout << "Turbulence model SA initialized from restart file (" 
+                      << (hasNuTilde ? "exact Nu Tilde" : "reconstructed from Eddy Viscosity") << ").\n";
+        } else if (isAxisymmetric) {
+            for (size_t i = 0; i < _ni; ++i) {
+                for (size_t j = 0; j < _nj; ++j) {
+                    for (size_t k = 0; k < _nk; ++k) {
+                        _nuHat(i, j, k) = inputNu(i, j, 0);
+                    }
+                }
+            }
+            std::cout << "Turbulence model SA initialized from axisymmetric restart file.\n";
+        } else {
+            std::cout << "Warning: Restart dimensions (" << NI << "," << NJ << "," << NK 
+                      << ") do not match current grid (" << _ni << "," << _nj << "," << _nk 
+                      << "). Using default initialization.\n";
+            initializeFromZero();
+        }
+    } else {
+        std::cout << "Restart file does not contain turbulence fields. Initializing SA from default.\n";
+        initializeFromZero();
+    }
+
+    updateBoundaryValues(_initialSolution);
 }
 
 

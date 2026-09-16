@@ -79,6 +79,8 @@ protected:
 
     FloatType getEddyThermalConductivity(const FloatType &mu, const FloatType &cp, const FloatType &Pr) const override {return mu*cp/Pr;}
 
+    FloatType getWorkingVariable(size_t i, size_t j, size_t k) const override {return _nuHat(i, j, k);}
+
 private:
     const FloatType _cb1 = 0.1355;
     const FloatType _cb2 = 0.622;

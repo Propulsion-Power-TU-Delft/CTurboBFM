@@ -50,6 +50,8 @@ protected:
 
     FloatType getEddyThermalConductivity(const FloatType &mu, const FloatType &cp, const FloatType &Pr) const override {return 0.0;}
 
+    FloatType getWorkingVariable(size_t i, size_t j, size_t k) const override {return 0.0;}
+
 private:
     
 };

@@ -139,3 +139,10 @@ FloatType computeRotationRateMagnitude(
     const Vector3D& gradV, 
     const Vector3D& gradW
 );
+
+FloatType reconstructNuTildeFromEddyViscosity(
+    FloatType mu_t, 
+    FloatType mu_L, 
+    FloatType rho,
+    FloatType cv1 = 7.1
+);

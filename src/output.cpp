@@ -33,6 +33,7 @@ namespace {
     constexpr const char* WALL_SHEAR_STRESS_Y       = "Wall Shear Stress Y";
     constexpr const char* WALL_SHEAR_STRESS_Z       = "Wall Shear Stress Z";
     constexpr const char* Y_PLUS                    = "Y Plus";
+    constexpr const char* NU_TILDE                  = "Nu Tilde";
 }
 
 Output::Output(
@@ -123,6 +124,9 @@ void Output::allocateOutputArrays() {
         _outputFields.emplace(WALL_SHEAR_STRESS_Y,      Matrix3D<FloatType>(_ni, _nj, _nk));
         _outputFields.emplace(WALL_SHEAR_STRESS_Z,      Matrix3D<FloatType>(_ni, _nj, _nk));
         _outputFields.emplace(Y_PLUS,                   Matrix3D<FloatType>(_ni, _nj, _nk));
+        if (_isTurbulenceActive) {
+            _outputFields.emplace(NU_TILDE,             Matrix3D<FloatType>(_ni, _nj, _nk));
+        }
     }
 }
     
@@ -242,6 +246,10 @@ void Output::updateViscousFields() {
                 );
 
                 _outputFields[EDDY_VISCOSITY](i, j, k) = _turbulenceModel.getEddyViscosity(_outputFields[DENSITY](i, j, k), i, j, k);
+
+                if (_isTurbulenceActive) {
+                    _outputFields[NU_TILDE](i, j, k) = _turbulenceModel.getWorkingVariable(i, j, k);
+                }
             }
         }
     }

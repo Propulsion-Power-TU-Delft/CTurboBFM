@@ -51,6 +51,8 @@ public:
 
     virtual FloatType getEddyThermalConductivity(const FloatType &mu, const FloatType &cp, const FloatType &Pr) const = 0;
 
+    virtual FloatType getWorkingVariable(size_t i, size_t j, size_t k) const = 0;
+
 protected:
     const Config& _config;
     const FluidBase& _fluid;

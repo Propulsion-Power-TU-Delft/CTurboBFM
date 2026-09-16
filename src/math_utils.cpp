@@ -637,3 +637,41 @@ FloatType computeRotationRateMagnitude(
     return S;
 
 }
+
+FloatType reconstructNuTildeFromEddyViscosity(
+    FloatType mu_t, 
+    FloatType mu_L, 
+    FloatType rho,
+    FloatType cv1)
+{
+    if (mu_t <= 0.0 || mu_L <= 0.0 || rho <= 0.0) {
+        return 0.0;
+    }
+
+    FloatType nu = mu_L / rho;
+    FloatType y = mu_t / mu_L;
+    FloatType cv1_3 = cv1 * cv1 * cv1;
+    FloatType cv1_3_y = cv1_3 * y;
+
+    // Initial guess: for y >> 1, chi ~ y; for y << 1, chi ~ (cv1^3 * y)^(1/4)
+    FloatType chi = std::max(y, std::pow(cv1_3_y, 0.25));
+
+    // Newton-Raphson iteration for P(chi) = chi^4 - y*chi^3 - cv1^3*y = 0
+    for (int iter = 0; iter < 12; ++iter) {
+        FloatType chi2 = chi * chi;
+        FloatType chi3 = chi2 * chi;
+        FloatType chi4 = chi3 * chi;
+        FloatType f = chi4 - y * chi3 - cv1_3_y;
+        FloatType df = 4.0 * chi3 - 3.0 * y * chi2;
+        if (std::abs(df) < 1e-14) {
+            break;
+        }
+        FloatType delta = f / df;
+        chi -= delta;
+        if (std::abs(delta) < 1e-10 * (1.0 + chi)) {
+            break;
+        }
+    }
+
+    return std::max(static_cast<FloatType>(0.0), chi * nu);
+}
