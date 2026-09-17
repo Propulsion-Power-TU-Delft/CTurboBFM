@@ -75,6 +75,24 @@ public:
     
     void setTransportProperties(const Config &config) override;
 
+    ViscosityModel getViscosityModel() const override { return _viscosityModel; }
+
+    void setConstantViscosity(FloatType mu, FloatType cp, FloatType Pr) {
+        _viscosityModel = ViscosityModel::CONSTANT;
+        _muConstant = mu;
+        _cp = cp;
+        _Pr = Pr;
+    }
+
+    void setSutherlandViscosity(FloatType muRef, FloatType TRef, FloatType S, FloatType cp, FloatType Pr) {
+        _viscosityModel = ViscosityModel::SUTHERLAND;
+        _sutherlandMuRef = muRef;
+        _sutherlandTemperatureRef = TRef;
+        _sutherlandSconstant = S;
+        _cp = cp;
+        _Pr = Pr;
+    }
+
     FloatType computeMolecularDynamicViscosity(FloatType temperature) const override;
 
     FloatType computeThermalConductivity(FloatType dynamicViscosity) const override;
@@ -85,9 +103,12 @@ private:
     FloatType _cp;     
     FloatType _cv;    
 
-    FloatType _sutherlandMuRef;
-    FloatType _sutherlandTemperatureRef;
-    FloatType _sutherlandSconstant;
+    ViscosityModel _viscosityModel {ViscosityModel::SUTHERLAND};
+    FloatType _muConstant {0.0};
 
-    FloatType _Pr;
+    FloatType _sutherlandMuRef {0.0};
+    FloatType _sutherlandTemperatureRef {0.0};
+    FloatType _sutherlandSconstant {0.0};
+
+    FloatType _Pr {0.72};
 };

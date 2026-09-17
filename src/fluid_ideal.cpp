@@ -150,15 +150,24 @@ Matrix3D<FloatType> FluidIdeal::computeTemperature_conservative(
 }
 
 void FluidIdeal::setTransportProperties(const Config &config){
-    _sutherlandMuRef = config.getSutherlandMuRef();
-    _sutherlandTemperatureRef = config.getSutherlandTemperatureRef();
-    _sutherlandSconstant = config.getSutherlandSconstant();
+    _viscosityModel = config.getViscosityModel();
+    if (_viscosityModel == ViscosityModel::CONSTANT) {
+        _muConstant = config.getFluidMuConstant();
+    }
+    else {
+        _sutherlandMuRef = config.getSutherlandMuRef();
+        _sutherlandTemperatureRef = config.getSutherlandTemperatureRef();
+        _sutherlandSconstant = config.getSutherlandSconstant();
+    }
 
     _cp = config.getFluidHeatCapacity(); 
     _Pr = config.getFluidPrandtlNumber();      
 }
 
 FloatType FluidIdeal::computeMolecularDynamicViscosity(FloatType temperature) const {
+    if (_viscosityModel == ViscosityModel::CONSTANT) {
+        return _muConstant;
+    }
     return _sutherlandMuRef * std::pow(temperature/_sutherlandTemperatureRef, 1.5) * (
         (_sutherlandTemperatureRef + _sutherlandSconstant) / (temperature + _sutherlandSconstant)
     );   

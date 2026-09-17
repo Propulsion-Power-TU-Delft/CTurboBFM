@@ -197,6 +197,8 @@ public:
 
     FluidModel getFluidModel() const;
 
+    ViscosityModel getViscosityModel() const;
+
     AdvectionScheme getAdvectionScheme() const;
 
     // get the coefficients for the Runge-Kutta time integration. (Taken from Simon thesis, page 64)
@@ -287,6 +289,8 @@ public:
     FloatType getRotationalSpeedScalingFactorFinal() const {
         return parseFloat("ROTATIONAL_SPEED_SCALING_FACTOR_FINAL");
     }
+
+    FloatType getFluidMuConstant() const;
 
     FloatType getSutherlandMuRef() const {return parseFloat("FLUID_SUTHERLAND_MU_REF");}
 

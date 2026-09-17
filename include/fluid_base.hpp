@@ -78,6 +78,8 @@ public:
     
     virtual void setTransportProperties(const Config &config) = 0;
 
+    virtual ViscosityModel getViscosityModel() const { return ViscosityModel::SUTHERLAND; }
+
     virtual FloatType computeMolecularDynamicViscosity(FloatType temperature) const = 0;
 
     virtual FloatType computeThermalConductivity(FloatType dynamicViscosity) const = 0;

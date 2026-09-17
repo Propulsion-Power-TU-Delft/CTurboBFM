@@ -388,6 +388,33 @@ FluxLimiter Config::getFluxLimiter() const {
     return model;
 }
 
+ViscosityModel Config::getViscosityModel() const {
+    std::string value = parseString("FLUID_VISCOSITY_MODEL", true);
+    if (value == "None") {
+        if (has("FLUID_MU_CONSTANT") || has("FLUID_CONSTANT_MU")) {
+            return ViscosityModel::CONSTANT;
+        }
+        return ViscosityModel::SUTHERLAND;
+    }
+    return viscosityModelFromString(value);
+}
+
+FloatType Config::getFluidMuConstant() const {
+    if (has("FLUID_MU_CONSTANT")) {
+        return parseFloat("FLUID_MU_CONSTANT");
+    }
+    else if (has("FLUID_CONSTANT_MU")) {
+        return parseFloat("FLUID_CONSTANT_MU");
+    }
+    else if (has("FLUID_SUTHERLAND_MU_REF")) {
+        return parseFloat("FLUID_SUTHERLAND_MU_REF");
+    }
+    else {
+        throw std::runtime_error("Missing constant viscosity value: please specify \"FLUID_MU_CONSTANT\" in configuration.");
+    }
+}
+
+
 
 FloatType Config::getBfmRelaxationFactor() const {
     bool bfmLagActive = isBfmLagActive();

@@ -1222,6 +1222,23 @@ enum class FluidModel {
     REAL
 };
 
+enum class ViscosityModel {
+    SUTHERLAND,
+    CONSTANT
+};
+
+inline ViscosityModel viscosityModelFromString(const std::string& s)
+{
+    std::string key = toLower(s);
+    if (key == "sutherland") {
+        return ViscosityModel::SUTHERLAND;
+    } else if (key == "constant") {
+        return ViscosityModel::CONSTANT;
+    } else {
+        throw std::runtime_error("Unknown ViscosityModel: " + s + ". Supported options: Sutherland, Constant.");
+    }
+}
+
 enum class ReferenceFrame {
     CARTESIAN,
     CYLINDRICAL
