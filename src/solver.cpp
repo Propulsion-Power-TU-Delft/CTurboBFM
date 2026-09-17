@@ -30,6 +30,8 @@ void Solver::setupSolverInfo() {
 
     _timeStep.resize(_nPointsI, _nPointsJ, _nPointsK);
     _time.push_back(0.0);
+    _currentTime = 0.0;
+    _historyBufferSize = _config.getHistoryBufferSize();
 
     _topology = _config.getTopology();
 
@@ -949,7 +951,7 @@ void Solver::solve(){
         updateTurbulenceSolution(solutionTmp, solutionGradTmp, 1.0, timestep);
         for (const auto &integrationCoeff: timeIntegrationCoeffs){
             computeSolutionGradient(solutionTmp, solutionGradTmp);
-            computeResiduals(solutionTmp, solutionGradTmp, it, _time.back(), timestep, residuals);
+            computeResiduals(solutionTmp, solutionGradTmp, it, _currentTime, timestep, residuals);
             updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
             enforcePeriodicityOnSolution(solutionTmp);
         }
@@ -958,7 +960,8 @@ void Solver::solve(){
         _conservativeSolution = solutionTmp;
         
         // update the physical time
-        _time.push_back(_time.back() + timestep.min());
+        _currentTime += timestep.min();
+        _time.push_back(_currentTime);
         
         // print information on screen
         printInfoResiduals(residuals, it);
@@ -968,7 +971,7 @@ void Solver::solve(){
         }
 
         // check the convergence process
-        checkConvergence(exitLoop, steadySimulation); 
+        checkConvergence(exitLoop, steadySimulation, it); 
         if (exitLoop && steadySimulation) {
             _output->writeSolution(it);
             writeLogResidualsToCsvFile();
@@ -984,7 +987,7 @@ void Solver::solve(){
         } 
 
         // write additional text files
-        if (it%monitorOutputFreq == 0) {
+        if (it%monitorOutputFreq == 0 || it == nIterMax || _logResiduals.size() >= _historyBufferSize) {
             writeLogResidualsToCsvFile();
             if (turboOutput) writeTurboPerformanceToCsvFile();
             if (monitorPointsActive) writeMonitorPointsToCsvFile();
@@ -999,6 +1002,10 @@ void Solver::printInfoResiduals(FlowSolution &residuals, size_t it) {
     auto logRes = computeLogResidualNorm(residuals);
     printLogResiduals(logRes, it);
     _logResiduals.push_back(logRes);
+    if (!_hasInitialLogResiduals) {
+        _initialLogResiduals = logRes;
+        _hasInitialLogResiduals = true;
+    }
 }
 
 
@@ -1037,7 +1044,7 @@ void Solver::printLogResiduals(const StateVector &logRes, unsigned long int it) 
     int col_width = 14;
     std::cout << std::fixed << std::setprecision(6);
     std::cout << "|" << std::setw(col_width) << std::setfill(' ') << std::left << it << "|"
-              << std::setw(col_width) << std::left << _time.back()*1E6 << "|"
+              << std::setw(col_width) << std::left << _currentTime*1E6 << "|"
               << std::setw(col_width) << std::right << logRes[0] << "|"
               << std::setw(col_width) << std::right << logRes[1] << "|"
               << std::setw(col_width) << std::right << logRes[2] << "|"
@@ -1765,18 +1772,27 @@ void Solver::enforcePeriodicityOnSolution(FlowSolution &solNew){
 
 
 
-void Solver::writeLogResidualsToCsvFile() const {
+void Solver::writeLogResidualsToCsvFile() {
+
+    if (_logResiduals.empty()) return;
 
     std::string filename = "residuals.csv";
-    std::ofstream file(filename); // open in truncate (default) mode
-
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open log residuals file: " << filename << std::endl;
-        return;
+    std::ofstream file;
+    if (_isFirstResidualWrite) {
+        file.open(filename, std::ios::out);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open log residuals file: " << filename << std::endl;
+            return;
+        }
+        file << "Rho,RhoU,RhoV,RhoW,RhoE\n";
+        _isFirstResidualWrite = false;
+    } else {
+        file.open(filename, std::ios::app);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open log residuals file: " << filename << std::endl;
+            return;
+        }
     }
-
-    // Write header
-    file << "Rho,RhoU,RhoV,RhoW,RhoE\n";
 
     size_t size = _logResiduals.size();
     for (size_t i = 0; i < size; i++) {
@@ -1789,84 +1805,121 @@ void Solver::writeLogResidualsToCsvFile() const {
     }
 
     file.close();
+    _logResiduals.clear();
     std::cout << std::endl;
-    std::cout << "Log residuals written to " << filename << std::endl;
+    std::cout << "Log residuals appended to " << filename << std::endl;
     std::cout << std::endl;
 }
 
-void Solver::writeTurboPerformanceToCsvFile() const {
+void Solver::writeTurboPerformanceToCsvFile() {
+
+    if (_turboPerformance.empty() || _turboPerformance.at(TurboPerformance::MASS_FLOW).empty()) return;
 
     std::string filename = "turbo.csv";
-    std::ofstream file(filename); // open in truncate (default) mode
-
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open turbo performance file: " << filename << std::endl;
-        return;
+    std::ofstream file;
+    if (_isFirstTurboWrite) {
+        file.open(filename, std::ios::out);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open turbo performance file: " << filename << std::endl;
+            return;
+        }
+        file << "Time[μs],Massflow[kg/s],PRtt,TRtt,ETAtt\n";
+        _isFirstTurboWrite = false;
+    } else {
+        file.open(filename, std::ios::app);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open turbo performance file: " << filename << std::endl;
+            return;
+        }
     }
-
-    // Write header
-    file << "Time[μs],Massflow[kg/s],PRtt,TRtt,ETAtt\n";
 
     size_t size = _turboPerformance.at(TurboPerformance::MASS_FLOW).size();
     for (size_t i = 0; i < size; i++) {
-        file << _time.at(i)*1E6 << ",";
-        file    << _turboPerformance.at(TurboPerformance::MASS_FLOW)[i] << "," 
-                << _turboPerformance.at(TurboPerformance::TOTAL_PRESSURE_RATIO)[i] << "," 
-                << _turboPerformance.at(TurboPerformance::TOTAL_TEMPERATURE_RATIO)[i] << "," 
-                << _turboPerformance.at(TurboPerformance::TOTAL_EFFICIENCY)[i] << std::endl; 
+        FloatType timeVal = (i < _time.size()) ? _time.at(i) : _currentTime;
+        file << timeVal*1E6 << ","
+             << _turboPerformance.at(TurboPerformance::MASS_FLOW)[i] << "," 
+             << _turboPerformance.at(TurboPerformance::TOTAL_PRESSURE_RATIO)[i] << "," 
+             << _turboPerformance.at(TurboPerformance::TOTAL_TEMPERATURE_RATIO)[i] << "," 
+             << _turboPerformance.at(TurboPerformance::TOTAL_EFFICIENCY)[i] << "\n"; 
     }
 
     file.close();
+    for (auto& [key, vec] : _turboPerformance) {
+        vec.clear();
+    }
+    _time.clear();
     std::cout << std::endl;
-    std::cout << "Turbo performance written to " << filename << std::endl;
+    std::cout << "Turbo performance appended to " << filename << std::endl;
     std::cout << std::endl;
 }
 
 
-void Solver::writeGreitzerDynamicsToCsvFile() const {
+void Solver::writeGreitzerDynamicsToCsvFile() {
+
+    if (!_greitzerModel || _greitzerModel->getSize() == 0) return;
 
     std::string filename = "greitzer_dynamics.csv";
-    std::ofstream file(filename);
-
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open turbo performance file: " << filename << std::endl;
-        return;
+    std::ofstream file;
+    if (_isFirstGreitzerWrite) {
+        file.open(filename, std::ios::out);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open greitzer dynamics file: " << filename << std::endl;
+            return;
+        }
+        file << "Time[s],PlenumPressure[Pa],PlenumInletMassflow[kg/s],PlenumOutletMassflow[kg/s]\n";
+        _isFirstGreitzerWrite = false;
+    } else {
+        file.open(filename, std::ios::app);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open greitzer dynamics file: " << filename << std::endl;
+            return;
+        }
     }
 
-    // Write header
-    file << "Time[s],PlenumPressure[Pa],PlenumInletMassflow[kg/s],PlenumOutletMassflow[kg/s]\n";
     size_t size = _greitzerModel->getSize();
     for (size_t i = 0; i < size; i++) {
-        file << _greitzerModel->getTime(i) << ",";
-        file << _greitzerModel->getPlenumPressure(i) << ",";
-        file << _greitzerModel->getPlenumInletMassflow(i) << ",";
-        file << _greitzerModel->getPlenumOutletMassflow(i) << std::endl;
+        file << _greitzerModel->getTime(i) << ","
+             << _greitzerModel->getPlenumPressure(i) << ","
+             << _greitzerModel->getPlenumInletMassflow(i) << ","
+             << _greitzerModel->getPlenumOutletMassflow(i) << "\n";
     }
 
     file.close();
+    _greitzerModel->clearBuffer();
     std::cout << std::endl;
-    std::cout << "Greitzer dynamics written to " << filename << std::endl;
+    std::cout << "Greitzer dynamics appended to " << filename << std::endl;
     std::cout << std::endl;
 }
 
 
 
-void Solver::writeMonitorPointsToCsvFile() const {
+void Solver::writeMonitorPointsToCsvFile() {
+
+    if (_monitorPoints.empty()) return;
 
     std::string folder = "Monitor_Points";
     std::filesystem::create_directories(folder); // Ensure the folder exists
 
     for (size_t iPoint = 0; iPoint < _monitorPoints.size(); iPoint++) {
-        std::string filename = folder + "/Monitor_Point_" + std::to_string(iPoint) + ".csv";
-        std::ofstream file(filename); 
+        if (_monitorPoints[iPoint].empty() || _monitorPoints[iPoint].at(MonitorOutputField::TIME).empty()) continue;
 
-        if (!file.is_open()) {
-            std::cerr << "Error: Could not open turbo performance file: " << filename << std::endl;
-            return;
+        std::string filename = folder + "/Monitor_Point_" + std::to_string(iPoint) + ".csv";
+        std::ofstream file;
+        if (_isFirstMonitorPointsWrite) {
+            file.open(filename, std::ios::out);
+            if (!file.is_open()) {
+                std::cerr << "Error: Could not open monitor point file: " << filename << std::endl;
+                return;
+            }
+            file << "Time[s],Pressure[Pa],Velocity_X[m/s],Velocity_Y[m/s],Velocity_Z[m/s]\n";
+        } else {
+            file.open(filename, std::ios::app);
+            if (!file.is_open()) {
+                std::cerr << "Error: Could not open monitor point file: " << filename << std::endl;
+                return;
+            }
         }
 
-        // Write header
-        file << "Time[s],Pressure[Pa],Velocity_X[m/s],Velocity_Y[m/s],Velocity_Z[m/s]\n";
         file << std::scientific << std::setprecision(6);
         size_t size = _monitorPoints[iPoint].at(MonitorOutputField::TIME).size();
         for (size_t i = 0; i < size; i++) {
@@ -1877,8 +1930,13 @@ void Solver::writeMonitorPointsToCsvFile() const {
                     << _monitorPoints[iPoint].at(MonitorOutputField::VELOCITY_Z)[i] << "\n"; 
         }
         file.close();
+
+        for (auto& [field, vec] : _monitorPoints[iPoint]) {
+            vec.clear();
+        }
     }
 
+    _isFirstMonitorPointsWrite = false;
     std::cout << std::endl;
     std::cout << "Written monitor points to " << folder  << std::endl;
     std::cout << std::endl;
@@ -2109,22 +2167,21 @@ void Solver::updateMonitorPoints(const FlowSolution &solution){
         _monitorPoints[i][MonitorOutputField::VELOCITY_X].push_back(primitive[1]);
         _monitorPoints[i][MonitorOutputField::VELOCITY_Y].push_back(primitive[2]);
         _monitorPoints[i][MonitorOutputField::VELOCITY_Z].push_back(primitive[3]);
-        _monitorPoints[i][MonitorOutputField::TIME].push_back(_time.back());
+        _monitorPoints[i][MonitorOutputField::TIME].push_back(_currentTime);
     }
 }
 
-void Solver::checkConvergence(bool &exitLoop, bool &isSteady) const {
-    if (!isSteady) return;
+void Solver::checkConvergence(bool &exitLoop, bool &isSteady, size_t it) const {
+    if (!isSteady || _logResiduals.empty()) return;
 
     StateVector current = _logResiduals.back();
-    StateVector initial = _logResiduals.front();
 
-    if (current[0] < initial[0] - _residualsDropConvergence &&
-        current[1] < initial[1] - _residualsDropConvergence &&
-        current[2] < initial[2] - _residualsDropConvergence &&
-        current[3] < initial[3] - _residualsDropConvergence &&
-        current[4] < initial[4] - _residualsDropConvergence) {
-        std::cout << "\nConvergence reached at iteration " << _logResiduals.size() << std::endl;
+    if (current[0] < _initialLogResiduals[0] - _residualsDropConvergence &&
+        current[1] < _initialLogResiduals[1] - _residualsDropConvergence &&
+        current[2] < _initialLogResiduals[2] - _residualsDropConvergence &&
+        current[3] < _initialLogResiduals[3] - _residualsDropConvergence &&
+        current[4] < _initialLogResiduals[4] - _residualsDropConvergence) {
+        std::cout << "\nConvergence reached at iteration " << it << std::endl;
         std::cout << std::endl;
         exitLoop = true;
     } 

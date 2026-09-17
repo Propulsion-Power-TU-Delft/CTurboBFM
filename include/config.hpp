@@ -206,6 +206,8 @@ public:
 
     size_t getSolutionOutputFrequency() const {return getSaveIterationsInterval();}
 
+    size_t getHistoryBufferSize() const {return static_cast<size_t>(parseInt("HISTORY_BUFFER_SIZE", getSolutionOutputFrequency()));}
+
     void printAllConfigValues() const;
 
     FloatType computeRampedOutletPressure(const size_t iterCounter, const FloatType outletPressure) const;

@@ -31,6 +31,8 @@ public:
     
     size_t getSize() const { return _time.size(); }
 
+    void clearBuffer();
+
 private:
     const FluidBase& _fluid;  
     const Config& _config;
@@ -38,6 +40,10 @@ private:
     std::vector<FloatType> _plenumOutletMassflow;
     std::vector<FloatType> _plenumPressure;
     std::vector<FloatType> _time;
+    FloatType _currentPlenumPressure = 0.0;
+    FloatType _currentPlenumInletMassflow = 0.0;
+    FloatType _currentPlenumOutletMassflow = 0.0;
+    FloatType _currentTime = 0.0;
     FloatType _plenumVolume; 
     FloatType _throttleCoefficient;
     FloatType _deltaTime = 0.0;

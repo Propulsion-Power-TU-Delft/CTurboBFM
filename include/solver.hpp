@@ -57,7 +57,7 @@ public:
 
 private:
 
-    void checkConvergence(bool &exitLoop, bool &isSteady) const;
+    void checkConvergence(bool &exitLoop, bool &isSteady, size_t it) const;
 
     const std::array<int, 3> getStepMask(FluxDirection direction) const;
 
@@ -185,13 +185,13 @@ private:
 
     void printLogResiduals(const StateVector &logRes, unsigned long int it) const;
 
-    void writeLogResidualsToCsvFile() const;
+    void writeLogResidualsToCsvFile();
 
-    void writeTurboPerformanceToCsvFile() const;
+    void writeTurboPerformanceToCsvFile();
 
-    void writeGreitzerDynamicsToCsvFile() const;
+    void writeGreitzerDynamicsToCsvFile();
 
-    void writeMonitorPointsToCsvFile() const;
+    void writeMonitorPointsToCsvFile();
 
     void updateRadialProfiles(FlowSolution &solution);
     
@@ -298,6 +298,7 @@ private:
 
     Matrix3D<FloatType> _wallDistance;
     
+    FloatType _currentTime {0.0};
     std::vector<FloatType> _time;
     
     std::unique_ptr<FluidBase> _fluid;
@@ -337,6 +338,13 @@ private:
     std::unique_ptr<TurbulenceModelBase> _turbulenceModel;
     
     std::vector<StateVector> _logResiduals;
+    StateVector _initialLogResiduals;
+    bool _hasInitialLogResiduals {false};
+    bool _isFirstResidualWrite {true};
+    bool _isFirstTurboWrite {true};
+    bool _isFirstGreitzerWrite {true};
+    bool _isFirstMonitorPointsWrite {true};
+    size_t _historyBufferSize {1000};
     
     Matrix3D<Vector3D> _inviscidForce, _viscousForce;
     Matrix3D<FloatType> _deviationAngle;

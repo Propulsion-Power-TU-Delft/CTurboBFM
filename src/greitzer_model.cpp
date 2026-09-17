@@ -19,28 +19,45 @@ void GreitzerModel::initializeState(
     FloatType plenumOutletMassflow,
     FloatType plenumTemperature) {
     
-    _plenumPressure.push_back(plenumPressure);
-    _plenumInletMassflow.push_back(plenumInletMassflow);
-    _plenumOutletMassflow.push_back(plenumOutletMassflow);
+    _currentPlenumPressure = plenumPressure;
+    _currentPlenumInletMassflow = plenumInletMassflow;
+    _currentPlenumOutletMassflow = plenumOutletMassflow;
     _plenumTemperature = plenumTemperature;
-    _time.push_back(0.0);
+    _currentTime = 0.0;
+
+    _plenumPressure.push_back(_currentPlenumPressure);
+    _plenumInletMassflow.push_back(_currentPlenumInletMassflow);
+    _plenumOutletMassflow.push_back(_currentPlenumOutletMassflow);
+    _time.push_back(_currentTime);
 }
 
 
 
 FloatType GreitzerModel::computePlenumPressure(FloatType massFlow) {
-    _plenumInletMassflow.push_back(massFlow);
-    _time.push_back(_time.back() + _deltaTime);
+    _currentPlenumInletMassflow = massFlow;
+    _currentTime += _deltaTime;
     
     FloatType aPlenum = std::sqrt(_fluidGamma * _fluidRConstant * _plenumTemperature); 
 
-    FloatType newP = _plenumPressure.back() + _deltaTime * aPlenum * aPlenum / _plenumVolume * (
-        _plenumInletMassflow.back() - _plenumOutletMassflow.back());
-    _plenumPressure.push_back(newP);
+    FloatType newP = _currentPlenumPressure + _deltaTime * aPlenum * aPlenum / _plenumVolume * (
+        _currentPlenumInletMassflow - _currentPlenumOutletMassflow);
+    _currentPlenumPressure = newP;
 
-    FloatType deltaP = _plenumPressure.back() - _ambientPressure;
+    FloatType deltaP = _currentPlenumPressure - _ambientPressure;
     FloatType newM = (deltaP > 0.0) ? std::sqrt(deltaP / _throttleCoefficient) : 0.0;
-    _plenumOutletMassflow.push_back(newM);
+    _currentPlenumOutletMassflow = newM;
+
+    _plenumInletMassflow.push_back(_currentPlenumInletMassflow);
+    _time.push_back(_currentTime);
+    _plenumPressure.push_back(_currentPlenumPressure);
+    _plenumOutletMassflow.push_back(_currentPlenumOutletMassflow);
     
-    return _plenumPressure.back();
+    return _currentPlenumPressure;
+}
+
+void GreitzerModel::clearBuffer() {
+    _plenumInletMassflow.clear();
+    _plenumOutletMassflow.clear();
+    _plenumPressure.clear();
+    _time.clear();
 }
