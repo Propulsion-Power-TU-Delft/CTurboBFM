@@ -2022,6 +2022,9 @@ void Solver::computeSourceResiduals(
     StateVector gongSource;
     bool geometricSourceFlag{false};
     bool gongSourceFlag{false};
+    const auto& surfacesK = _mesh.getSurfacesK();
+    const FloatType wedgeAngle = _mesh.getWedgeAngle();
+
     for (size_t i = 0; i < _nPointsI; i++) {
         for (size_t j = 0; j < _nPointsJ; j++) {
             for (size_t k = 0; k < _nPointsK; k++) {
@@ -2042,18 +2045,40 @@ void Solver::computeSourceResiduals(
                     velocityCart = {primitive[1], primitive[2], primitive[3]};
                     velocityCyl = computeCylindricalComponentsFromCartesian(velocityCart, theta);
 
-                    sourceCyl.x() = 0.0; 
-                    sourceCyl.y() = (+ primitive[0] * velocityCyl.z() * velocityCyl.z() + pressure) / radius; 
-                    sourceCyl.z() = - primitive[0] * velocityCyl.y() * velocityCyl.z() / radius; 
+                    if (_topology == Topology::AXISYMMETRIC) {
+                        // By Pappus's centroid theorem, the volume of a wedge cell is: V = r_centroid * A_K * deltaTheta.
+                        // Therefore, the volume-integrated geometric source terms:
+                        //   int (S / r) dV = S * A_K * deltaTheta
+                        // which cancels out 'r' analytically and avoids coordinate singularity near the axis (r -> 0).
+                        FloatType areaK = surfacesK(i, j, 0).magnitude();
+                        FloatType geomFactor = areaK * wedgeAngle;
 
-                    sourceCart = computeCartesianComponentsFromCylindrical(sourceCyl, theta);
-                    sourceGeometrical[0] = 0.0;
-                    sourceGeometrical[1] = sourceCart.x();
-                    sourceGeometrical[2] = sourceCart.y();
-                    sourceGeometrical[3] = sourceCart.z();
-                    sourceGeometrical[4] = 0.0;
-                    
-                    residuals.subtract(i, j, k, sourceGeometrical*volume);
+                        sourceCyl.x() = 0.0;
+                        sourceCyl.y() = (+ primitive[0] * velocityCyl.z() * velocityCyl.z() + pressure) * geomFactor;
+                        sourceCyl.z() = - primitive[0] * velocityCyl.y() * velocityCyl.z() * geomFactor;
+
+                        sourceCart = computeCartesianComponentsFromCylindrical(sourceCyl, theta);
+                        sourceGeometrical[0] = 0.0;
+                        sourceGeometrical[1] = sourceCart.x();
+                        sourceGeometrical[2] = sourceCart.y();
+                        sourceGeometrical[3] = sourceCart.z();
+                        sourceGeometrical[4] = 0.0;
+
+                        residuals.subtract(i, j, k, sourceGeometrical);
+                    } else {
+                        sourceCyl.x() = 0.0; 
+                        sourceCyl.y() = (+ primitive[0] * velocityCyl.z() * velocityCyl.z() + pressure) / radius; 
+                        sourceCyl.z() = - primitive[0] * velocityCyl.y() * velocityCyl.z() / radius; 
+
+                        sourceCart = computeCartesianComponentsFromCylindrical(sourceCyl, theta);
+                        sourceGeometrical[0] = 0.0;
+                        sourceGeometrical[1] = sourceCart.x();
+                        sourceGeometrical[2] = sourceCart.y();
+                        sourceGeometrical[3] = sourceCart.z();
+                        sourceGeometrical[4] = 0.0;
+                        
+                        residuals.subtract(i, j, k, sourceGeometrical * volume);
+                    }
                 }
 
                 if (gongSourceFlag){
