@@ -1,0 +1,79 @@
+
+=========================================
+       INFORMATION OF CONFIG FILE        
+=========================================
+
+BOUNDARY_CONDITIONS_FILEPATH = ../../grids/Couette/Grid/grid_06_65_06_boundaries.csv
+CFL = 2.0
+CONVECTION_SCHEME = JST
+FLUID_CP = 1006
+FLUID_GAMMA = 1.4
+FLUID_MODEL = Ideal
+FLUID_MU_CONSTANT = 1.716E-5
+FLUID_NAME = Air
+FLUID_PRANDTL_NUMBER = 0.708
+FLUID_R_CONSTANT = 287.05
+FLUID_VISCOSITY_MODEL = Constant
+FLUX_LIMITER = van albada
+GRID_FILE = ../../grids/Couette/Grid/grid_06_65_06.csv
+INIT_DIRECTION = 0, 0, 1
+INIT_MACH_NUMBER = 0.01
+INIT_PRESSURE = 100000
+INIT_TEMPERATURE = 300
+KIND_SOLVER = Euler
+LATERAL_SIDE1 = inviscid_wall
+LATERAL_SIDE2 = inviscid_wall
+LOWER_WALL = no_slip_wall, 0, 0, 0, 0
+MUSCL_RECONSTRUCTION = no
+N_ITERATIONS = 50
+OUTPUT_FIELDS_TYPE = secondary
+PER1 = periodic, 0, 1.0, 0
+PER2 = periodic, 1, 1.0, 0
+RESIDUALS_DROP_CONVERGENCE = 6
+RESTART_SOLUTION = yes
+RESTART_SOLUTION_FILEPATH = Volume_CSV/results.csv
+SAVE_ITERATIONS_INTERVAL = 250
+SAVE_UNSTEADY = no
+SOLUTION_NAME = results
+TIME_INTEGRATION_TYPE = 0
+TIME_STEP_METHOD = local
+TOPOLOGY = 3D
+UPPER_WALL = no_slip_wall, 0, 0, 10, 0
+VISCOSITY_ACTIVE = yes
+=========================================
+Computing dual grid coordinates for 3D mesh
+Computing cell elements interfaces
+Compute element volumes
+
+=========================================
+        INFORMATION OF GRID FILE        
+=========================================
+
+Number of Dimensions    : 3
+Points along Axis I     : 6
+Points along Axis J     : 65
+Points along Axis K     : 6
+
+The grid file '../../grids/Couette/Grid/grid_06_65_06.csv' contains a total of 2340 points.
+Aspect ratio Stats: {
+min: 32
+max: 128
+mean: 54.9744
+std: 18.2589
+size: 2340
+}
+
+Skewness Stats: {
+min: 0
+max: 16.3169
+mean: 2.68474
+std: 5.50453
+size: 5388
+}
+
+Orthogonality Stats: {
+min: 0
+max: 0
+mean: 0
+std: 0
+size: 5388
