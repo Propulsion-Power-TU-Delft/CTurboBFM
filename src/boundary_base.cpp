@@ -51,21 +51,31 @@ StateVector BoundaryBase::computeSubsonicInletFlux(
         FloatType unInt = velocityInt.dot(normal);
         FloatType Z = primitive[0] * soundSpeedInt;
         FloatType pInt = _fluid.computePressure_rho_u_et(primitive[0], velocityInt, primitive[4]);
-        FloatType Rout = pInt - Z * unInt;
+
+        // Outflow normal component of inflow direction (negative for inward flow)
+        FloatType Cgeom = flowDirection.dot(normal);
+        if (Cgeom >= 0.0) {
+            Cgeom = -1.0;
+        }
+
+        // Outgoing characteristic carried from the interior towards the boundary:
+        // Along dx/dt = un + a > 0, (p + Z * un) is constant.
+        // Therefore at the boundary: p_b + Z * un_b = p_int + Z * un_int
+        FloatType Rout = pInt + Z * unInt;
 
         FloatType sIn = _fluid.computeEntropy_p_T(totPressureBoundary, totTemperatureBoundary);
         FloatType htIn = _fluid.computeEnthalpy_p_s(totPressureBoundary, sIn);
-        FloatType Cgeom = flowDirection.dot(normal); // outward normal component of inflow direction (< 0)
 
-        FloatType pLow = 0.01 * totPressureBoundary;
-        FloatType pHigh = totPressureBoundary;
+        // Subsonic pressure search range [0.4*pt, pt]
+        FloatType pLow = 0.4 * totPressureBoundary;
+        FloatType pHigh = 0.999999 * totPressureBoundary;
         FloatType pBound = 0.5 * (pLow + pHigh);
 
         for (int iter = 0; iter < 30; ++iter) {
             FloatType pMid = 0.5 * (pLow + pHigh);
             FloatType hMid = _fluid.computeEnthalpy_p_s(pMid, sIn);
             FloatType VMid = std::sqrt(2.0 * std::max(static_cast<FloatType>(0.0), htIn - hMid));
-            FloatType residual = pMid - Z * Cgeom * VMid - Rout;
+            FloatType residual = pMid + Z * Cgeom * VMid - Rout;
 
             if (std::abs(residual) < 1e-4 * totPressureBoundary) {
                 pBound = pMid;
