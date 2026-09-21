@@ -197,7 +197,32 @@ public:
 
     FluidModel getFluidModel() const;
 
+    std::string getFluidName() const;
+
     std::string getFluidTableFile() const;
+
+    bool isFluidTableForceRegenerate() const;
+
+    bool hasFluidTablePMin() const;
+    FloatType getFluidTablePMin() const;
+
+    bool hasFluidTablePMax() const;
+    FloatType getFluidTablePMax() const;
+
+    bool hasFluidTableTMin() const;
+    FloatType getFluidTableTMin() const;
+
+    bool hasFluidTableTMax() const;
+    FloatType getFluidTableTMax() const;
+
+    int getFluidTableNRho() const;
+    int getFluidTableNE() const;
+    int getFluidTableNP() const;
+    int getFluidTableNT() const;
+    int getFluidTableNS() const;
+
+    std::string getFluidTableGeneratorScript() const;
+    std::string getFluidTablePythonExecutable() const;
 
     ViscosityModel getViscosityModel() const;
 

@@ -85,6 +85,7 @@ private:
     void setupSolverInfo();
 
     void buildFluidModel();
+    void generateFluidTable(const std::string& tableFile);
 
     void buildAdvectionModel();
 

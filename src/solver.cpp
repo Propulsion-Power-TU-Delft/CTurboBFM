@@ -8,6 +8,12 @@
 #include <vector>
 #include <fstream>
 #include <string>
+#include <filesystem>
+#include <cstdlib>
+#include <sstream>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 Solver::Solver(Config& config, Mesh& mesh)
     : _config(config), _mesh(mesh)
@@ -46,6 +52,15 @@ void Solver::buildFluidModel() {
     }
     else if (_fluidModel == FluidModel::REAL){
         std::string tableFile = _config.getFluidTableFile();
+        bool forceRegen = _config.isFluidTableForceRegenerate();
+        bool tableExists = std::filesystem::exists(tableFile);
+
+        if (!tableExists || forceRegen) {
+            std::cout << "Fluid table '" << tableFile << "' not found or regeneration requested. Auto-generating..." << std::endl;
+            generateFluidTable(tableFile);
+        }
+
+        std::cout << "Loading fluid look-up table: " << tableFile << std::endl;
         _fluid = std::make_unique<FluidReal>(tableFile);
     }
     else{
@@ -55,6 +70,111 @@ void Solver::buildFluidModel() {
     if (_config.isViscosityActive()){
         _fluid->setTransportProperties(_config);
     }
+}
+
+void Solver::generateFluidTable(const std::string& tableFile) {
+    // 1. Locate python generator script
+    std::filesystem::path scriptPath;
+    std::string configScript = _config.getFluidTableGeneratorScript();
+    if (!configScript.empty() && std::filesystem::exists(configScript)) {
+        scriptPath = configScript;
+    } else {
+        std::vector<std::filesystem::path> candidates = {
+            "python/generate_fluid_table.py",
+            "../python/generate_fluid_table.py",
+            "../../python/generate_fluid_table.py",
+            "../../../python/generate_fluid_table.py"
+        };
+        if (const char* root = std::getenv("TURBOBFM_ROOT")) {
+            candidates.push_back(std::filesystem::path(root) / "python" / "generate_fluid_table.py");
+        }
+#if defined(__APPLE__)
+        char buf[2048];
+        uint32_t bufSize = sizeof(buf);
+        if (_NSGetExecutablePath(buf, &bufSize) == 0) {
+            std::filesystem::path exePath = std::filesystem::weakly_canonical(buf);
+            candidates.push_back(exePath.parent_path().parent_path() / "python" / "generate_fluid_table.py");
+        }
+#elif defined(__linux__)
+        if (std::filesystem::exists("/proc/self/exe")) {
+            std::filesystem::path exePath = std::filesystem::weakly_canonical("/proc/self/exe");
+            candidates.push_back(exePath.parent_path().parent_path() / "python" / "generate_fluid_table.py");
+        }
+#endif
+        for (const auto& cand : candidates) {
+            if (std::filesystem::exists(cand)) {
+                scriptPath = std::filesystem::absolute(cand);
+                break;
+            }
+        }
+    }
+
+    if (scriptPath.empty() || !std::filesystem::exists(scriptPath)) {
+        throw std::runtime_error("Could not find table generator script 'python/generate_fluid_table.py'. "
+                                 "Please set TURBOBFM_ROOT or FLUID_TABLE_GENERATOR in configuration.");
+    }
+
+    std::string pythonExe = _config.getFluidTablePythonExecutable();
+    std::string fluidName = _config.getFluidName();
+
+    FloatType pMin = 0.0, pMax = 0.0, tMin = 0.0, tMax = 0.0;
+    if (_config.hasFluidTablePMin() && _config.hasFluidTablePMax() &&
+        _config.hasFluidTableTMin() && _config.hasFluidTableTMax()) {
+        pMin = _config.getFluidTablePMin();
+        pMax = _config.getFluidTablePMax();
+        tMin = _config.getFluidTableTMin();
+        tMax = _config.getFluidTableTMax();
+    } else if (_config.has("INIT_PRESSURE") && _config.has("INIT_TEMPERATURE")) {
+        FloatType pInit = _config.getInitPressure();
+        FloatType tInit = _config.getInitTemperature();
+        pMin = _config.hasFluidTablePMin() ? _config.getFluidTablePMin() : std::max(1.0e4, pInit * 0.5);
+        pMax = _config.hasFluidTablePMax() ? _config.getFluidTablePMax() : pInit * 1.5;
+        tMin = _config.hasFluidTableTMin() ? _config.getFluidTableTMin() : std::max(100.0, tInit * 0.85);
+        tMax = _config.hasFluidTableTMax() ? _config.getFluidTableTMax() : tInit * 1.35;
+    } else {
+        pMin = _config.hasFluidTablePMin() ? _config.getFluidTablePMin() : 5.0e6;
+        pMax = _config.hasFluidTablePMax() ? _config.getFluidTablePMax() : 1.2e7;
+        tMin = _config.hasFluidTableTMin() ? _config.getFluidTableTMin() : 305.0;
+        tMax = _config.hasFluidTableTMax() ? _config.getFluidTableTMax() : 450.0;
+    }
+
+    int nRho = _config.getFluidTableNRho();
+    int nE = _config.getFluidTableNE();
+    int nP = _config.getFluidTableNP();
+    int nT = _config.getFluidTableNT();
+    int nS = _config.getFluidTableNS();
+
+    // Ensure parent directory of tableFile exists
+    std::filesystem::path tablePath(tableFile);
+    if (tablePath.has_parent_path()) {
+        std::filesystem::create_directories(tablePath.parent_path());
+    }
+
+    std::ostringstream cmd;
+    cmd << pythonExe << " \"" << scriptPath.string() << "\""
+        << " --fluid \"" << fluidName << "\""
+        << " --output \"" << tablePath.string() << "\""
+        << " --p_min " << pMin
+        << " --p_max " << pMax
+        << " --T_min " << tMin
+        << " --T_max " << tMax
+        << " --n_rho " << nRho
+        << " --n_e " << nE
+        << " --n_p " << nP
+        << " --n_T " << nT
+        << " --n_s " << nS;
+
+    std::cout << "[FluidReal] Auto-generating thermodynamic table for '" << fluidName << "'..." << std::endl;
+    std::cout << "  Script:  " << scriptPath.string() << std::endl;
+    std::cout << "  Output:  " << tablePath.string() << std::endl;
+    std::cout << "  Ranges:  P in [" << pMin << ", " << pMax << "] Pa, T in [" << tMin << ", " << tMax << "] K" << std::endl;
+    std::cout << "  Points:  (n_rho=" << nRho << ", n_e=" << nE << ", n_p=" << nP << ", n_t=" << nT << ", n_s=" << nS << ")" << std::endl;
+
+    int ret = std::system(cmd.str().c_str());
+    if (ret != 0 || !std::filesystem::exists(tablePath)) {
+        throw std::runtime_error("[FluidReal] Failed to generate table file '" + tablePath.string() + "'. Command exit code: " + std::to_string(ret));
+    }
+    std::cout << "[FluidReal] Thermodynamic table generated successfully." << std::endl;
 }
 
 void Solver::buildAdvectionModel() {

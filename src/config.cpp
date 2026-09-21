@@ -388,8 +388,92 @@ FluxLimiter Config::getFluxLimiter() const {
     return model;
 }
 
+std::string Config::getFluidName() const {
+    if (has("FLUID_NAME")) {
+        return parseString("FLUID_NAME", false);
+    } else if (has("FLUID")) {
+        return parseString("FLUID", false);
+    }
+    return "CO2";
+}
+
 std::string Config::getFluidTableFile() const {
-    return parseString("FLUID_TABLE_FILE", false);
+    if (has("FLUID_TABLE_FILE")) {
+        return parseString("FLUID_TABLE_FILE", false);
+    }
+    return "fluid_table_" + getFluidName() + ".lut";
+}
+
+bool Config::isFluidTableForceRegenerate() const {
+    if (has("FLUID_TABLE_FORCE_REGENERATE")) {
+        return parseBool("FLUID_TABLE_FORCE_REGENERATE", false);
+    } else if (has("FLUID_TABLE_REGENERATE")) {
+        return parseBool("FLUID_TABLE_REGENERATE", false);
+    }
+    return false;
+}
+
+bool Config::hasFluidTablePMin() const { return has("FLUID_TABLE_P_MIN") || has("FLUID_P_MIN"); }
+FloatType Config::getFluidTablePMin() const {
+    if (has("FLUID_TABLE_P_MIN")) return parseFloat("FLUID_TABLE_P_MIN");
+    if (has("FLUID_P_MIN")) return parseFloat("FLUID_P_MIN");
+    return 1e5;
+}
+
+bool Config::hasFluidTablePMax() const { return has("FLUID_TABLE_P_MAX") || has("FLUID_P_MAX"); }
+FloatType Config::getFluidTablePMax() const {
+    if (has("FLUID_TABLE_P_MAX")) return parseFloat("FLUID_TABLE_P_MAX");
+    if (has("FLUID_P_MAX")) return parseFloat("FLUID_P_MAX");
+    return 1e7;
+}
+
+bool Config::hasFluidTableTMin() const { return has("FLUID_TABLE_T_MIN") || has("FLUID_T_MIN"); }
+FloatType Config::getFluidTableTMin() const {
+    if (has("FLUID_TABLE_T_MIN")) return parseFloat("FLUID_TABLE_T_MIN");
+    if (has("FLUID_T_MIN")) return parseFloat("FLUID_T_MIN");
+    return 200.0;
+}
+
+bool Config::hasFluidTableTMax() const { return has("FLUID_TABLE_T_MAX") || has("FLUID_T_MAX"); }
+FloatType Config::getFluidTableTMax() const {
+    if (has("FLUID_TABLE_T_MAX")) return parseFloat("FLUID_TABLE_T_MAX");
+    if (has("FLUID_T_MAX")) return parseFloat("FLUID_T_MAX");
+    return 600.0;
+}
+
+int Config::getFluidTableNRho() const {
+    if (has("FLUID_TABLE_N_RHO")) return parseInt("FLUID_TABLE_N_RHO");
+    return 60;
+}
+
+int Config::getFluidTableNE() const {
+    if (has("FLUID_TABLE_N_E")) return parseInt("FLUID_TABLE_N_E");
+    return 60;
+}
+
+int Config::getFluidTableNP() const {
+    if (has("FLUID_TABLE_N_P")) return parseInt("FLUID_TABLE_N_P");
+    return 40;
+}
+
+int Config::getFluidTableNT() const {
+    if (has("FLUID_TABLE_N_T")) return parseInt("FLUID_TABLE_N_T");
+    return 40;
+}
+
+int Config::getFluidTableNS() const {
+    if (has("FLUID_TABLE_N_S")) return parseInt("FLUID_TABLE_N_S");
+    return 40;
+}
+
+std::string Config::getFluidTableGeneratorScript() const {
+    if (has("FLUID_TABLE_GENERATOR")) return parseString("FLUID_TABLE_GENERATOR", false);
+    return "";
+}
+
+std::string Config::getFluidTablePythonExecutable() const {
+    if (has("FLUID_TABLE_PYTHON")) return parseString("FLUID_TABLE_PYTHON", false);
+    return "python3";
 }
 
 ViscosityModel Config::getViscosityModel() const {
