@@ -405,3 +405,16 @@ FloatType FluidReal::computeDpDrho_e(FloatType rho, FloatType e) const {
 FloatType FluidReal::computeDpDe_rho(FloatType rho, FloatType e) const {
     return _table_dp_de.interpolate(rho, e);
 }
+
+FloatType FluidReal::computeInternalEnergy_p_T(FloatType p, FloatType T) const {
+    return _table_e_pt.interpolate(p, T);
+}
+
+FloatType FluidReal::computeSoundSpeed_p_T(FloatType p, FloatType T) const {
+    return _table_a_pt.interpolate(p, T);
+}
+
+bool FluidReal::isStateInBounds_rho_e(FloatType rho, FloatType e) const {
+    return (rho >= _table_p.xMin && rho <= _table_p.xMax &&
+            e   >= _table_p.yMin && e   <= _table_p.yMax);
+}

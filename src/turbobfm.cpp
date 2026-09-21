@@ -28,7 +28,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    solver->solve();
+    try {
+        solver->solve();
+    } catch (const std::exception& e) {
+        std::cerr << "Solver execution halted: " << e.what() << std::endl;
+        return 1;
+    }
 
     return 0;
 }

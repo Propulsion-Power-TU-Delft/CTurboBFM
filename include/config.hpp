@@ -223,6 +223,7 @@ public:
 
     std::string getFluidTableGeneratorScript() const;
     std::string getFluidTablePythonExecutable() const;
+    bool getStopOnTableOutOfBounds() const;
 
     ViscosityModel getViscosityModel() const;
 

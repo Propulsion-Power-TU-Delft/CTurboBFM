@@ -367,5 +367,7 @@ private:
 
     std::unique_ptr<GreitzerModel> _greitzerModel;
     bool _isGreitzerModelingActive{false};
-    
+    bool _stopOnTableOutOfBounds{false};
+
+    void checkThermodynamicBounds(const FlowSolution& solution, size_t iterationCounter);
 };

@@ -392,7 +392,23 @@ void Output::writeSolution(size_t iterationCounter){
     file.close();
     std::cout << std::endl;
     std::cout << "Solution written to file: " << filename << std::endl;
-    std::cout << std::endl;}
+    std::cout << std::endl;
+}
+
+void Output::writeCustomSolution(const std::string& customFilename){
+    updateOutputArrays();
+
+    std::string filepath = _outputVolumeDirectory + "/" + customFilename + ".csv";
+    std::ofstream file(filepath);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open custom solution file: " << filepath << std::endl;
+        return;
+    }
+    writeHeader(file);
+    writeData(file);
+    file.close();
+    std::cout << "Solution written to file: " << filepath << std::endl;
+}
 
 
 void Output::writeHeader(std::ofstream& file) const {

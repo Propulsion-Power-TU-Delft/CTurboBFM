@@ -34,6 +34,10 @@ public:
         return 0.5 * (getGamma() + 1.0);
     }
 
+    // Thermodynamic derivatives chi = (dp/drho)_e and kappa = (dp/de)_rho
+    virtual FloatType computeDpDrho_e(FloatType rho, FloatType e) const = 0;
+    virtual FloatType computeDpDe_rho(FloatType rho, FloatType e) const = 0;
+
     // Thermodynamic evaluations from (p, rho)
     virtual FloatType computeStaticEnergy_p_rho(FloatType p, FloatType rho) const = 0;
     
@@ -47,6 +51,17 @@ public:
     virtual FloatType computeDensity_p_T(FloatType p, FloatType T) const = 0;
 
     virtual FloatType computeEntropy_p_T(FloatType pressure, FloatType temperature) const = 0;
+
+    virtual FloatType computeInternalEnergy_p_T(FloatType p, FloatType T) const {
+        FloatType rho = computeDensity_p_T(p, T);
+        return computeStaticEnergy_p_rho(p, rho);
+    }
+
+    virtual FloatType computeSoundSpeed_p_T(FloatType p, FloatType T) const {
+        FloatType rho = computeDensity_p_T(p, T);
+        FloatType e = computeInternalEnergy_p_T(p, T);
+        return computeSoundSpeed_rho_e(rho, e);
+    }
 
     // Thermodynamic evaluations from (p, s) - useful for isentropic expansions, stagnation states, outlet BCs
     virtual FloatType computeDensity_p_s(FloatType p, FloatType s) const = 0;
@@ -163,5 +178,11 @@ public:
 
     virtual FloatType computeThermalConductivity(FloatType dynamicViscosity) const = 0;
     
+    // Bounds checking
+    virtual bool isStateInBounds_rho_e(FloatType rho, FloatType e) const { return true; }
+    virtual FloatType getRhoMin() const { return 0.0; }
+    virtual FloatType getRhoMax() const { return 1e9; }
+    virtual FloatType getEMin() const { return 0.0; }
+    virtual FloatType getEMax() const { return 1e9; }
 };
 

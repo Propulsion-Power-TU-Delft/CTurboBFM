@@ -27,6 +27,14 @@ public:
 
     FloatType computeFundamentalDerivative_rho_e(FloatType rho, FloatType e) const override;
 
+    FloatType computeDpDrho_e(FloatType rho, FloatType e) const override;
+
+    FloatType computeDpDe_rho(FloatType rho, FloatType e) const override;
+
+    FloatType computeInternalEnergy_p_T(FloatType p, FloatType T) const override;
+
+    FloatType computeSoundSpeed_p_T(FloatType p, FloatType T) const override;
+
     FloatType computePressure_rho_T(FloatType rho, FloatType Temp) const override;
     
     FloatType computeSoundSpeed_p_rho(FloatType p, FloatType rho) const override;

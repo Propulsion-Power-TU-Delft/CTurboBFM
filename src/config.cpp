@@ -476,6 +476,10 @@ std::string Config::getFluidTablePythonExecutable() const {
     return "python3";
 }
 
+bool Config::getStopOnTableOutOfBounds() const {
+    return parseBool("STOP_ON_TABLE_OUT_OF_BOUNDS", false);
+}
+
 ViscosityModel Config::getViscosityModel() const {
     std::string value = parseString("FLUID_VISCOSITY_MODEL", true);
     if (value == "None") {

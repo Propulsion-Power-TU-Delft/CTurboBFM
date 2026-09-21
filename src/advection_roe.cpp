@@ -75,16 +75,71 @@ void AdvectionRoe::computeRoeAvgVariables(const StateVector& Wl, const StateVect
     FloatType u2R = Wr[2];
     FloatType u3L = Wl[3];
     FloatType u3R = Wr[3];
-    FloatType htL = _fluid.computeTotalEnthalpy_rho_u_et(Wl[0], {Wl[1], Wl[2], Wl[3]}, Wl[4]);
-    FloatType htR = _fluid.computeTotalEnthalpy_rho_u_et(Wr[0], {Wr[1], Wr[2], Wr[3]}, Wr[4]);
+    FloatType etL = Wl[4];
+    FloatType etR = Wr[4];
+    FloatType htL = _fluid.computeTotalEnthalpy_rho_u_et(rhoL, {u1L, u2L, u3L}, etL);
+    FloatType htR = _fluid.computeTotalEnthalpy_rho_u_et(rhoR, {u1R, u2R, u3R}, etR);
 
     state.rhoAVG = std::sqrt(rhoL * rhoR);
     state.u1AVG = roeAverage(rhoL, rhoR, u1L, u1R);
     state.u2AVG = roeAverage(rhoL, rhoR, u2L, u2R);
     state.u3AVG = roeAverage(rhoL, rhoR, u3L, u3R);
     state.htAVG = roeAverage(rhoL, rhoR, htL, htR);
-    state.aAVG = std::sqrt((_fluid.getGamma() -1.0) * (state.htAVG - 0.5 * (state.u1AVG*state.u1AVG + state.u2AVG*state.u2AVG + state.u3AVG*state.u3AVG)));
 
+    FloatType eL = etL - 0.5 * (u1L * u1L + u2L * u2L + u3L * u3L);
+    FloatType eR = etR - 0.5 * (u1R * u1R + u2R * u2R + u3R * u3R);
+    FloatType pL = _fluid.computePressure_rho_e(rhoL, eL);
+    FloatType pR = _fluid.computePressure_rho_e(rhoR, eR);
+
+    FloatType chiL = _fluid.computeDpDrho_e(rhoL, eL);
+    FloatType kappaL = _fluid.computeDpDe_rho(rhoL, eL);
+    FloatType chiR = _fluid.computeDpDrho_e(rhoR, eR);
+    FloatType kappaR = _fluid.computeDpDe_rho(rhoR, eR);
+
+    FloatType barChi = 0.5 * (chiL + chiR);
+    FloatType barKappa = 0.5 * (kappaL + kappaR);
+    FloatType barRho = 0.5 * (rhoL + rhoR);
+    FloatType barE = 0.5 * (eL + eR);
+
+    FloatType deltaP = pR - pL;
+    FloatType deltaRho = rhoR - rhoL;
+    FloatType deltaE = eR - eL;
+
+    // Vinokur-Montagne orthogonal projection to satisfy jump condition: deltaP = chi * deltaRho + kappa * deltaE
+    FloatType dRhoHat = (barRho > 1e-12) ? deltaRho / barRho : 0.0;
+    FloatType dEHat = (std::abs(barE) > 1e-12) ? deltaE / std::abs(barE) : 0.0;
+    FloatType dNorm2 = dRhoHat * dRhoHat + dEHat * dEHat;
+
+    FloatType chiTilde = barChi;
+    FloatType kappaTilde = barKappa;
+
+    if (dNorm2 > 1e-12) {
+        FloatType residual = deltaP - (barChi * deltaRho + barKappa * deltaE);
+        chiTilde += (residual * dRhoHat) / (dNorm2 * barRho);
+        kappaTilde += (residual * dEHat) / (dNorm2 * std::abs(barE));
+    }
+
+    if (barKappa > 0.0 && kappaTilde <= 0.0) {
+        kappaTilde = 0.01 * barKappa;
+    }
+
+    state.chiAVG = chiTilde;
+    state.kappaAVG = kappaTilde;
+    state.kappaPrime = (state.rhoAVG > 1e-12) ? kappaTilde / state.rhoAVG : 0.4;
+
+    FloatType eAVG = roeAverage(rhoL, rhoR, eL, eR);
+    state.chiPrime = chiTilde - state.kappaPrime * eAVG;
+
+    FloatType q2AVG = state.u1AVG * state.u1AVG + state.u2AVG * state.u2AVG + state.u3AVG * state.u3AVG;
+    FloatType hAVG = state.htAVG - 0.5 * q2AVG;
+
+    FloatType a2 = state.chiPrime + state.kappaPrime * hAVG;
+    if (a2 <= 0.0) {
+        FloatType aL = _fluid.computeSoundSpeed_rho_e(rhoL, eL);
+        FloatType aR = _fluid.computeSoundSpeed_rho_e(rhoR, eR);
+        a2 = 0.5 * (aL * aL + aR * aR);
+    }
+    state.aAVG = std::sqrt(a2);
 }
 
 
@@ -103,8 +158,9 @@ void AdvectionRoe::computeEigenvalues(RoeState& state) const {
 }
 
 void AdvectionRoe::computeEigenvectors(RoeState& state) const {
+    FloatType contactE5 = state.htAVG - (state.aAVG * state.aAVG) / state.kappaPrime;
     state.eigenvectors[0] = StateVector({1.0, state.u1AVG - state.aAVG, state.u2AVG, state.u3AVG, state.htAVG - state.aAVG * state.u1AVG});
-    state.eigenvectors[1] = StateVector({1.0, state.u1AVG, state.u2AVG, state.u3AVG, 0.5 * (state.u1AVG*state.u1AVG + state.u2AVG*state.u2AVG + state.u3AVG*state.u3AVG)});
+    state.eigenvectors[1] = StateVector({1.0, state.u1AVG, state.u2AVG, state.u3AVG, contactE5});
     state.eigenvectors[2] = StateVector({0.0, 0.0, 1.0, 0.0, state.u2AVG});
     state.eigenvectors[3] = StateVector({0.0, 0.0, 0.0, 1.0, state.u3AVG});
     state.eigenvectors[4] = StateVector({1.0, state.u1AVG + state.aAVG, state.u2AVG, state.u3AVG, state.htAVG + state.aAVG * state.u1AVG});

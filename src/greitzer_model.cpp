@@ -37,7 +37,7 @@ FloatType GreitzerModel::computePlenumPressure(FloatType massFlow) {
     _currentPlenumInletMassflow = massFlow;
     _currentTime += _deltaTime;
     
-    FloatType aPlenum = std::sqrt(_fluidGamma * _fluidRConstant * _plenumTemperature); 
+    FloatType aPlenum = _fluid.computeSoundSpeed_p_T(_currentPlenumPressure, _plenumTemperature); 
 
     FloatType newP = _currentPlenumPressure + _deltaTime * aPlenum * aPlenum / _plenumVolume * (
         _currentPlenumInletMassflow - _currentPlenumOutletMassflow);

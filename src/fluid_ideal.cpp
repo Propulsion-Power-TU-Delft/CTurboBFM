@@ -47,6 +47,22 @@ FloatType FluidIdeal::computeFundamentalDerivative_rho_e(FloatType rho, FloatTyp
     return 0.5 * (_gamma + 1.0);
 }
 
+FloatType FluidIdeal::computeDpDrho_e(FloatType rho, FloatType e) const {
+    return (_gamma - 1.0) * e;
+}
+
+FloatType FluidIdeal::computeDpDe_rho(FloatType rho, FloatType e) const {
+    return (_gamma - 1.0) * rho;
+}
+
+FloatType FluidIdeal::computeInternalEnergy_p_T(FloatType p, FloatType T) const {
+    return _cv * T;
+}
+
+FloatType FluidIdeal::computeSoundSpeed_p_T(FloatType p, FloatType T) const {
+    return std::sqrt(_gamma * _R * T);
+}
+
 FloatType FluidIdeal::computePressure_rho_T(FloatType rho, FloatType Temp) const {
     return rho * _R * Temp;
 }

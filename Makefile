@@ -16,9 +16,9 @@ OMP_INCLUDE_PATH := /opt/homebrew/opt/libomp/include
 # Compiler and flags
 # ==========================================================
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH)
+CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH) -O3 -DNDEBUG -march=native -flto
 
-LDFLAGS  := -L$(OMP_LIB_PATH) -lomp
+LDFLAGS  := -L$(OMP_LIB_PATH) -lomp -flto
 
 # Build-type specific flags
 DEBUG_FLAGS   := -g -O0
@@ -26,7 +26,7 @@ RELEASE_FLAGS := -O3 -DNDEBUG -march=native -flto
 PROFILE_FLAGS := -g -O3 -DNDEBUG -march=native -I$(PROFILE_INCLUDE_PATH)
 
 # Default build type
-BUILD_TYPE := debug
+BUILD_TYPE := release
 
 # ==========================================================
 # Sources and objects
@@ -54,11 +54,10 @@ GRAD_TARGET := $(BIN_DIR)/turbobfm_grad
 # ==========================================================
 all: $(MAIN_TARGET)
 
-debug: CXXFLAGS += $(DEBUG_FLAGS)
-debug: all
+debug: CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH) $(DEBUG_FLAGS)
+debug: LDFLAGS := -L$(OMP_LIB_PATH) -lomp
+debug: $(MAIN_TARGET)
 
-release: CXXFLAGS += $(RELEASE_FLAGS)
-release: LDFLAGS += -flto
 release: all
 
 profile: CXXFLAGS += $(PROFILE_FLAGS)

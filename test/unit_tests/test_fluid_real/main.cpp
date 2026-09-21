@@ -137,6 +137,30 @@ TEST_F(FluidRealTest, TestOutletIsentropicExpansion) {
     EXPECT_NEAR(s_exit, s_int, 2.0); // within 0.1% of entropy value (~1800 J/kg K)
 }
 
+TEST_F(FluidRealTest, TestThermodynamicDerivatives_and_pT) {
+    FloatType p_ref = 8.0e6;
+    FloatType T_ref = 330.0;
+    FloatType rho_ref = fluid->computeDensity_p_T(p_ref, T_ref);
+    FloatType e_ref = fluid->computeInternalEnergy_p_T(p_ref, T_ref);
+
+    FloatType dp_drho = fluid->computeDpDrho_e(rho_ref, e_ref);
+    FloatType dp_de = fluid->computeDpDe_rho(rho_ref, e_ref);
+
+    // Both derivatives must be strictly positive for single-phase stable gas
+    EXPECT_GT(dp_drho, 0.0);
+    EXPECT_GT(dp_de, 0.0);
+
+    // Speed of sound consistency: a^2 approx dp/drho + (p/rho^2) * dp/de
+    FloatType a2_deriv = dp_drho + (p_ref / (rho_ref * rho_ref)) * dp_de;
+    FloatType a_table = fluid->computeSoundSpeed_rho_e(rho_ref, e_ref);
+    EXPECT_GT(a2_deriv, 0.0);
+    EXPECT_NEAR(std::sqrt(a2_deriv), a_table, a_table * 0.02);
+
+    // (p, T) sound speed vs (rho, e) sound speed
+    FloatType a_pt = fluid->computeSoundSpeed_p_T(p_ref, T_ref);
+    EXPECT_NEAR(a_pt, a_table, 1.0);
+}
+
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

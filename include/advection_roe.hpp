@@ -19,6 +19,7 @@ private:
     struct RoeState {
         Vector3D n1, n2, n3;
         FloatType rhoAVG{0}, u1AVG{0}, u2AVG{0}, u3AVG{0}, htAVG{0}, aAVG{0};
+        FloatType chiAVG{0}, kappaAVG{0}, kappaPrime{0}, chiPrime{0};
         StateVector eigenvalues{};
         std::array<StateVector, 5> eigenvectors{};
         StateVector waveStrengths{};

@@ -113,9 +113,19 @@ public:
     FloatType computeThermalConductivity(FloatType dynamicViscosity) const override;
     FloatType computeThermalConductivity_rho_e(FloatType rho, FloatType e) const;
 
+    FloatType computeInternalEnergy_p_T(FloatType p, FloatType T) const override;
+    FloatType computeSoundSpeed_p_T(FloatType p, FloatType T) const override;
+
     // Thermodynamic derivatives
-    FloatType computeDpDrho_e(FloatType rho, FloatType e) const;
-    FloatType computeDpDe_rho(FloatType rho, FloatType e) const;
+    FloatType computeDpDrho_e(FloatType rho, FloatType e) const override;
+    FloatType computeDpDe_rho(FloatType rho, FloatType e) const override;
+
+    // Bounds checking
+    bool isStateInBounds_rho_e(FloatType rho, FloatType e) const override;
+    FloatType getRhoMin() const override { return _table_p.xMin; }
+    FloatType getRhoMax() const override { return _table_p.xMax; }
+    FloatType getEMin() const override { return _table_p.yMin; }
+    FloatType getEMax() const override { return _table_p.yMax; }
 
     const std::string& getFluidName() const { return _fluidName; }
     FloatType getMolarMass() const { return _molarMass; }

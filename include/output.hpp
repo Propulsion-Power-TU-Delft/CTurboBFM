@@ -31,6 +31,7 @@ public:
     ~Output() = default;
 
     void writeSolution(size_t iterationCounter);
+    void writeCustomSolution(const std::string& customFilename);
 
     void getOutputFieldsMap(std::map<std::string, Matrix3D<FloatType>>& scalarsMap) const;
 

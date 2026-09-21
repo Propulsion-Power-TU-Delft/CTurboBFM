@@ -118,6 +118,31 @@ TEST(FluidIdealTest, TestSutherlandViscosity) {
     EXPECT_NEAR(fluid.computeMolecularDynamicViscosity(300.0), expectedMu, 1e-12);
 }
 
+TEST(FluidIdealTest, TestThermodynamicDerivatives_and_pT) {
+    FloatType gamma {1.4}, R {287.05};
+    FluidIdeal fluid(gamma, R);
+
+    FloatType T = 300.0;
+    FloatType p = 101325.0;
+    FloatType rho = fluid.computeDensity_p_T(p, T);
+    FloatType cv = R / (gamma - 1.0);
+    FloatType e = cv * T;
+
+    // dp/drho|e = (gamma - 1) * e
+    EXPECT_NEAR(fluid.computeDpDrho_e(rho, e), (gamma - 1.0) * e, 1e-10);
+    // dp/de|rho = (gamma - 1) * rho
+    EXPECT_NEAR(fluid.computeDpDe_rho(rho, e), (gamma - 1.0) * rho, 1e-10);
+
+    // Consistency: a^2 = dp/drho|e + (p / rho^2) * dp/de|rho
+    FloatType a2_deriv = fluid.computeDpDrho_e(rho, e) + (p / (rho * rho)) * fluid.computeDpDe_rho(rho, e);
+    FloatType a_expected = std::sqrt(gamma * R * T);
+    EXPECT_NEAR(std::sqrt(a2_deriv), a_expected, 1e-8);
+
+    // (p, T) queries
+    EXPECT_NEAR(fluid.computeInternalEnergy_p_T(p, T), e, 1e-10);
+    EXPECT_NEAR(fluid.computeSoundSpeed_p_T(p, T), a_expected, 1e-10);
+}
+
 int main(int argc, char** argv)
 {
     testing::InitGoogleTest(&argc, argv);

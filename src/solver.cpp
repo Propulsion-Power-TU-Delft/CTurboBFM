@@ -43,6 +43,7 @@ void Solver::setupSolverInfo() {
     _topology = _config.getTopology();
 
     _residualsDropConvergence = _config.getResidualsDropConvergence();  
+    _stopOnTableOutOfBounds = _config.getStopOnTableOutOfBounds();
 }
 
 void Solver::buildFluidModel() {
@@ -1220,6 +1221,9 @@ void Solver::solve(){
 
     // place holder for the solution
     preprocessSolution(_conservativeSolution, false);
+    if (_stopOnTableOutOfBounds) {
+        checkThermodynamicBounds(_conservativeSolution, 0);
+    }
     FlowSolution solutionTmp(_conservativeSolution);                              
     std::map<SolutionName, Matrix3D<Vector3D>> solutionGradTmp = _solutionGrad;               
     
@@ -1245,6 +1249,11 @@ void Solver::solve(){
 
         // update the solution and prepare for next iteration
         _conservativeSolution = solutionTmp;
+        
+        // check thermodynamic bounds if requested
+        if (_stopOnTableOutOfBounds) {
+            checkThermodynamicBounds(_conservativeSolution, it);
+        }
         
         // update the physical time
         _currentTime += timestep.min();
@@ -2054,6 +2063,188 @@ void Solver::enforcePeriodicityOnSolution(FlowSolution &solNew){
             solNew.set(i, j, 0, Uavg);
             solNew.set(i, j, _nPointsK - 1, rotateStateVectorAlongXAxis(Uavg, angle));
         }
+    }
+}
+
+
+void Solver::checkThermodynamicBounds(const FlowSolution& solution, size_t iterationCounter) {
+    if (!_stopOnTableOutOfBounds || _fluidModel != FluidModel::REAL) {
+        return;
+    }
+
+    FloatType rhoMin = _fluid->getRhoMin();
+    FloatType rhoMax = _fluid->getRhoMax();
+    FloatType eMin = _fluid->getEMin();
+    FloatType eMax = _fluid->getEMax();
+
+    size_t outOfBoundsCount = 0;
+    size_t worstI = 0, worstJ = 0, worstK = 0;
+    FloatType maxViolation = 0.0;
+    std::string worstVar = "";
+    FloatType worstVal = 0.0;
+    FloatType worstLimit = 0.0;
+    bool isNanOrInfCrash = false;
+
+    for (size_t i = 0; i < _nPointsI; ++i) {
+        for (size_t j = 0; j < _nPointsJ; ++j) {
+            for (size_t k = 0; k < _nPointsK; ++k) {
+                FloatType rho = solution._rho(i, j, k);
+                FloatType rhou = solution._rhoU(i, j, k);
+                FloatType rhov = solution._rhoV(i, j, k);
+                FloatType rhow = solution._rhoW(i, j, k);
+                FloatType rhoe = solution._rhoE(i, j, k);
+
+                if (std::isnan(rho) || std::isinf(rho) || rho <= 0.0) {
+                    outOfBoundsCount++;
+                    if (!isNanOrInfCrash) {
+                        isNanOrInfCrash = true;
+                        worstI = i; worstJ = j; worstK = k;
+                        worstVar = (std::isnan(rho) || std::isinf(rho)) ? "Density (NaN/Inf)" : "Density (<= 0)";
+                        worstVal = rho;
+                        worstLimit = rhoMin;
+                    }
+                    continue;
+                }
+
+                FloatType invRho = 1.0 / rho;
+                FloatType u = rhou * invRho;
+                FloatType v = rhov * invRho;
+                FloatType w = rhow * invRho;
+                FloatType et = rhoe * invRho;
+                FloatType e = et - 0.5 * (u * u + v * v + w * w);
+
+                if (std::isnan(e) || std::isinf(e)) {
+                    outOfBoundsCount++;
+                    if (!isNanOrInfCrash) {
+                        isNanOrInfCrash = true;
+                        worstI = i; worstJ = j; worstK = k;
+                        worstVar = "Internal Energy (NaN/Inf)";
+                        worstVal = e;
+                        worstLimit = eMin;
+                    }
+                    continue;
+                }
+
+                bool outOfBounds = false;
+                FloatType violation = 0.0;
+                std::string var = "";
+                FloatType val = 0.0;
+                FloatType limit = 0.0;
+
+                if (rho < rhoMin) {
+                    outOfBounds = true;
+                    FloatType vRho = (rhoMin - rho) / (std::abs(rhoMin) > 1e-12 ? std::abs(rhoMin) : 1.0);
+                    if (vRho > violation) {
+                        violation = vRho; var = "Density (below min)"; val = rho; limit = rhoMin;
+                    }
+                } else if (rho > rhoMax) {
+                    outOfBounds = true;
+                    FloatType vRho = (rho - rhoMax) / (std::abs(rhoMax) > 1e-12 ? std::abs(rhoMax) : 1.0);
+                    if (vRho > violation) {
+                        violation = vRho; var = "Density (above max)"; val = rho; limit = rhoMax;
+                    }
+                }
+
+                if (e < eMin) {
+                    outOfBounds = true;
+                    FloatType vE = (eMin - e) / (std::abs(eMin) > 1e-12 ? std::abs(eMin) : 1.0);
+                    if (vE > violation) {
+                        violation = vE; var = "Internal Energy (below min)"; val = e; limit = eMin;
+                    }
+                } else if (e > eMax) {
+                    outOfBounds = true;
+                    FloatType vE = (e - eMax) / (std::abs(eMax) > 1e-12 ? std::abs(eMax) : 1.0);
+                    if (vE > violation) {
+                        violation = vE; var = "Internal Energy (above max)"; val = e; limit = eMax;
+                    }
+                }
+
+                if (outOfBounds) {
+                    outOfBoundsCount++;
+                    if (violation > maxViolation) {
+                        maxViolation = violation;
+                        worstI = i; worstJ = j; worstK = k;
+                        worstVar = var;
+                        worstVal = val;
+                        worstLimit = limit;
+                    }
+                }
+            }
+        }
+    }
+
+    if (outOfBoundsCount > 0) {
+        Vector3D vertex = _mesh.getVertex(worstI, worstJ, worstK);
+        FloatType rhoW = solution._rho(worstI, worstJ, worstK);
+        FloatType invRhoW = (rhoW > 1e-12) ? (1.0 / rhoW) : 1.0;
+        Vector3D velW = {solution._rhoU(worstI, worstJ, worstK) * invRhoW,
+                         solution._rhoV(worstI, worstJ, worstK) * invRhoW,
+                         solution._rhoW(worstI, worstJ, worstK) * invRhoW};
+        FloatType etW = solution._rhoE(worstI, worstJ, worstK) * invRhoW;
+        FloatType eW = etW - 0.5 * velW.dot(velW);
+
+        FloatType pW = 0.0, TW = 0.0, aW = 0.0, machW = 0.0;
+        if (!isNanOrInfCrash && rhoW > 0.0) {
+            pW = _fluid->computePressure_rho_e(rhoW, eW);
+            TW = _fluid->computeTemperature_rho_e(rhoW, eW);
+            aW = _fluid->computeSoundSpeed_rho_e(rhoW, eW);
+            machW = velW.magnitude() / (aW > 1e-12 ? aW : 1.0);
+        }
+
+        std::cout << "\n";
+        std::cout << "================================================================================\n";
+        std::cout << "             [CTurboBFM] THERMODYNAMIC STATE OUT OF TABLE BOUNDS                \n";
+        std::cout << "================================================================================\n";
+        std::cout << "Solver halted at iteration: " << iterationCounter 
+                  << " (physical time: " << _currentTime << " s)\n\n";
+
+        std::cout << "Offending Cell:\n";
+        std::cout << "  - Grid Index (i, j, k): (" << worstI << ", " << worstJ << ", " << worstK << ")\n";
+        std::cout << "  - Coordinates (x, y, z): (" << vertex.x() << " m, " << vertex.y() << " m, " << vertex.z() << " m)\n\n";
+
+        std::cout << "Violations Detected:\n";
+        if (isNanOrInfCrash) {
+            std::cout << "  - Severe Numerical Divergence: " << worstVar << "\n";
+            std::cout << "  - Offending Value:             " << worstVal << "\n";
+        } else {
+            std::cout << "  - Primary Violation: " << worstVar << "\n";
+            std::cout << "  - Offending Value:   " << worstVal << "\n";
+            std::cout << "  - Table Limit:       " << worstLimit << "\n";
+            std::cout << "  - Relative Excess:   " << std::fixed << std::setprecision(2) << (maxViolation * 100.0) << "%\n";
+        }
+
+        std::cout << "\nTable Range Limits:\n";
+        std::cout << "  - Density rho:       [" << rhoMin << ", " << rhoMax << "] kg/m^3\n";
+        std::cout << "  - Internal energy e: [" << eMin << ", " << eMax << "] J/kg\n";
+
+        if (!isNanOrInfCrash && rhoW > 0.0) {
+            std::cout << "\nFlow State at Offending Cell:\n";
+            std::cout << "  - Density rho:         " << rhoW << " kg/m^3\n";
+            std::cout << "  - Internal energy e:   " << eW << " J/kg\n";
+            std::cout << "  - Static Pressure p:   " << pW << " Pa\n";
+            std::cout << "  - Static Temperature T:" << TW << " K\n";
+            std::cout << "  - Flow Velocity |u|:   " << velW.magnitude() << " m/s\n";
+            std::cout << "  - Local Mach Number M: " << machW << "\n";
+        }
+
+        size_t totalCells = _nPointsI * _nPointsJ * _nPointsK;
+        std::cout << "\nOut-of-Bounds Summary:\n";
+        std::cout << "  - Total violated cells: " << outOfBoundsCount << " / " << totalCells 
+                  << " (" << std::fixed << std::setprecision(2) << (100.0 * outOfBoundsCount / totalCells) << "% of domain)\n";
+
+        std::cout << "\nCrash Snapshot Output:\n";
+        _conservativeSolution = solution;
+        if (_output) {
+            _output->writeCustomSolution("results_crashed");
+        }
+        writeLogResidualsToCsvFile();
+
+        std::cout << "\nAction Recommended:\n";
+        std::cout << "  - Widen FLUID_TABLE_P_MIN / FLUID_TABLE_P_MAX or FLUID_TABLE_T_MIN / FLUID_TABLE_T_MAX in input.ini\n";
+        std::cout << "    to cover the operational thermodynamic envelope of your simulation.\n";
+        std::cout << "================================================================================\n\n";
+
+        throw std::runtime_error("Thermodynamic state out of table bounds. Solver execution stopped.");
     }
 }
 
