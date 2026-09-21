@@ -87,6 +87,56 @@ TEST_F(FluidRealTest, TestStagnationState) {
     EXPECT_GT(T_total, T_static);
 }
 
+TEST_F(FluidRealTest, TestInletCharacteristicPhysics) {
+    // Reservoir / Inflow total state: pt = 9.0 MPa, Tt = 340 K
+    FloatType pt_in = 9.0e6;
+    FloatType Tt_in = 340.0;
+    FloatType s_in = fluid->computeEntropy_p_T(pt_in, Tt_in);
+    FloatType ht_in = fluid->computeEnthalpy_p_s(pt_in, s_in);
+
+    // For any subsonic inlet static pressure pb < pt_in:
+    FloatType pb = 8.5e6;
+    FloatType hb = fluid->computeEnthalpy_p_s(pb, s_in);
+    EXPECT_LT(hb, ht_in);
+
+    // Inflow velocity from enthalpy conservation
+    FloatType Vb = std::sqrt(2.0 * (ht_in - hb));
+    EXPECT_GT(Vb, 0.0);
+
+    // Density and energy at inlet boundary
+    FloatType rhob = fluid->computeDensity_p_s(pb, s_in);
+    FloatType eb = fluid->computeInternalEnergy_p_s(pb, s_in);
+    EXPECT_GT(rhob, 0.0);
+    EXPECT_GT(eb, 0.0);
+
+    // Speed of sound at inlet boundary
+    FloatType ab = fluid->computeSoundSpeed_rho_e(rhob, eb);
+    FloatType Mb = Vb / ab;
+    EXPECT_LT(Mb, 1.0); // Subsonic inlet
+}
+
+TEST_F(FluidRealTest, TestOutletIsentropicExpansion) {
+    // Interior state
+    FloatType p_int = 8.5e6;
+    FloatType T_int = 330.0;
+    FloatType rho_int = fluid->computeDensity_p_T(p_int, T_int);
+    FloatType e_int = fluid->computeInternalEnergy_p_s(p_int, fluid->computeEntropy_p_T(p_int, T_int));
+    FloatType s_int = fluid->computeEntropy_rho_e(rho_int, e_int);
+
+    // Imposed lower outlet pressure (expansion)
+    FloatType p_exit = 8.0e6;
+    FloatType rho_exit = fluid->computeDensity_p_s(p_exit, s_int);
+    FloatType e_exit = fluid->computeInternalEnergy_p_s(p_exit, s_int);
+
+    // Density must decrease in isentropic expansion
+    EXPECT_LT(rho_exit, rho_int);
+    EXPECT_LT(e_exit, e_int);
+
+    // Entropy at exit must match interior entropy
+    FloatType s_exit = fluid->computeEntropy_rho_e(rho_exit, e_exit);
+    EXPECT_NEAR(s_exit, s_int, 2.0); // within 0.1% of entropy value (~1800 J/kg K)
+}
+
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

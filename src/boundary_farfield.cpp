@@ -1,5 +1,6 @@
 #include "boundary_farfield.hpp"
 #include "math_utils.hpp"
+#include "fluid_ideal.hpp"
 
 StateVector BoundaryFarfield::computeBoundaryFlux(
     const StateVector& internalConservative,
@@ -55,47 +56,87 @@ StateVector BoundaryFarfield::computeBoundaryFlux(
     }
     else {
         // subsonic: combine the outgoing (interior) and incoming (freestream)
-        // Riemann invariants
-        FloatType riemannPlus  = normalVelInt + 2.0 * soundSpeedInt / (gamma - 1.0);
-        FloatType riemannMinus = normalVelInf - 2.0 * soundSpeedInf / (gamma - 1.0);
+        if (dynamic_cast<const FluidIdeal*>(&_fluid)) {
+            FloatType riemannPlus  = normalVelInt + 2.0 * soundSpeedInt / (gamma - 1.0);
+            FloatType riemannMinus = normalVelInf - 2.0 * soundSpeedInf / (gamma - 1.0);
 
-        FloatType normalVelBound = 0.5 * (riemannPlus + riemannMinus);
-        FloatType soundSpeedBound = 0.25 * (gamma - 1.0) * (riemannPlus - riemannMinus);
+            FloatType normalVelBound = 0.5 * (riemannPlus + riemannMinus);
+            FloatType soundSpeedBound = 0.25 * (gamma - 1.0) * (riemannPlus - riemannMinus);
 
-        // entropy and tangential velocity come from the upwind side
-        FloatType densityRef, pressureRef;
-        Vector3D velocityRef;
-        if (normalVelBound > 0.0) {
-            // outflow: take them from the interior
-            densityRef = densityInt;
-            pressureRef = pressureInt;
-            velocityRef = velocityInt;
+            // entropy and tangential velocity come from the upwind side
+            FloatType densityRef, pressureRef;
+            Vector3D velocityRef;
+            if (normalVelBound > 0.0) {
+                // outflow: take them from the interior
+                densityRef = densityInt;
+                pressureRef = pressureInt;
+                velocityRef = velocityInt;
+            }
+            else {
+                // inflow: take them from the freestream
+                densityRef = densityInf;
+                pressureRef = pressureInf;
+                velocityRef = velocityInf;
+            }
+
+            FloatType entropy = pressureRef / std::pow(densityRef, gamma);
+            FloatType densityBound = std::pow(
+                soundSpeedBound * soundSpeedBound / (gamma * entropy), 1.0 / (gamma - 1.0));
+            FloatType pressureBound = densityBound * soundSpeedBound * soundSpeedBound / gamma;
+
+            // rebuild the velocity from the upwind tangential part and the
+            // characteristic normal component
+            Vector3D velocityTangential = velocityRef - normal * velocityRef.dot(normal);
+            Vector3D velocityBound = velocityTangential + normal * normalVelBound;
+
+            FloatType energyBound = _fluid.computeStaticEnergy_p_rho(pressureBound, densityBound);
+            FloatType totEnergyBound = energyBound + 0.5 * velocityBound.dot(velocityBound);
+            primitiveBoundary = StateVector({
+                densityBound,
+                velocityBound.x(),
+                velocityBound.y(),
+                velocityBound.z(),
+                totEnergyBound});
         }
         else {
-            // inflow: take them from the freestream
-            densityRef = densityInf;
-            pressureRef = pressureInf;
-            velocityRef = velocityInf;
+            // General real-gas acoustic characteristic boundary condition
+            FloatType rhoAvg = 0.5 * (densityInt + densityInf);
+            FloatType aAvg = 0.5 * (soundSpeedInt + soundSpeedInf);
+            FloatType Z = rhoAvg * aAvg;
+
+            FloatType Rplus = normalVelInt + pressureInt / Z;
+            FloatType Rminus = normalVelInf - pressureInf / Z;
+
+            FloatType normalVelBound = 0.5 * (Rplus + Rminus);
+            FloatType pressureBound = 0.5 * (Rplus - Rminus) * Z;
+
+            FloatType sRef;
+            Vector3D velocityRef;
+            if (normalVelBound > 0.0) {
+                // outflow: entropy and tangential velocity from interior
+                FloatType eInt = primitiveInt[4] - 0.5 * velocityInt.dot(velocityInt);
+                sRef = _fluid.computeEntropy_rho_e(densityInt, eInt);
+                velocityRef = velocityInt;
+            } else {
+                // inflow: entropy and tangential velocity from freestream
+                sRef = _fluid.computeEntropy_p_T(pressureInf, temperatureInf);
+                velocityRef = velocityInf;
+            }
+
+            FloatType densityBound = _fluid.computeDensity_p_s(pressureBound, sRef);
+            FloatType energyBound = _fluid.computeInternalEnergy_p_s(pressureBound, sRef);
+
+            Vector3D velocityTangential = velocityRef - normal * velocityRef.dot(normal);
+            Vector3D velocityBound = velocityTangential + normal * normalVelBound;
+            FloatType totEnergyBound = energyBound + 0.5 * velocityBound.dot(velocityBound);
+
+            primitiveBoundary = StateVector({
+                densityBound,
+                velocityBound.x(),
+                velocityBound.y(),
+                velocityBound.z(),
+                totEnergyBound});
         }
-
-        FloatType entropy = pressureRef / std::pow(densityRef, gamma);
-        FloatType densityBound = std::pow(
-            soundSpeedBound * soundSpeedBound / (gamma * entropy), 1.0 / (gamma - 1.0));
-        FloatType pressureBound = densityBound * soundSpeedBound * soundSpeedBound / gamma;
-
-        // rebuild the velocity from the upwind tangential part and the
-        // characteristic normal component
-        Vector3D velocityTangential = velocityRef - normal * velocityRef.dot(normal);
-        Vector3D velocityBound = velocityTangential + normal * normalVelBound;
-
-        FloatType energyBound = _fluid.computeStaticEnergy_p_rho(pressureBound, densityBound);
-        FloatType totEnergyBound = energyBound + 0.5 * velocityBound.dot(velocityBound);
-        primitiveBoundary = StateVector({
-            densityBound,
-            velocityBound.x(),
-            velocityBound.y(),
-            velocityBound.z(),
-            totEnergyBound});
     }
 
     StateVector flux = computeAdvectionFluxFromPrimitive(primitiveBoundary, surface, _fluid);
