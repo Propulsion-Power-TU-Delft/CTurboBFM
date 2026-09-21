@@ -1,4 +1,5 @@
 #include "turbulence_model_sa.hpp"
+#include "kdtree.hpp"
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -89,7 +90,16 @@ void TurbulenceModelSA::initializeFromRestartFile() {
     size_t iNuTilde = hasNuTilde ? columnIndex["Nu Tilde"] : 0;
     size_t iEddyVisc = hasEddyViscosity ? columnIndex["Eddy Viscosity"] : 0;
 
+    bool hasX = (columnIndex.find("x") != columnIndex.end() || columnIndex.find("X") != columnIndex.end());
+    bool hasY = (columnIndex.find("y") != columnIndex.end() || columnIndex.find("Y") != columnIndex.end());
+    bool hasZ = (columnIndex.find("z") != columnIndex.end() || columnIndex.find("Z") != columnIndex.end());
+    bool hasCoords = (hasX && hasY && hasZ);
+    size_t ix = columnIndex.count("x") ? columnIndex["x"] : (columnIndex.count("X") ? columnIndex["X"] : 0);
+    size_t iy = columnIndex.count("y") ? columnIndex["y"] : (columnIndex.count("Y") ? columnIndex["Y"] : 0);
+    size_t iz = columnIndex.count("z") ? columnIndex["z"] : (columnIndex.count("Z") ? columnIndex["Z"] : 0);
+
     Matrix3D<FloatType> inputNu(NI, NJ, NK);
+    Matrix3D<Vector3D> inputCoords(NI, NJ, NK);
 
     if (hasNuTilde || hasEddyViscosity) {
         size_t totalPoints = NI * NJ * NK;
@@ -107,6 +117,10 @@ void TurbulenceModelSA::initializeFromRestartFile() {
             size_t k = pointCount % NK;
             size_t j = (pointCount / NK) % NJ;
             size_t i = pointCount / (NJ * NK);
+
+            if (hasCoords && ix < row.size() && iy < row.size() && iz < row.size()) {
+                inputCoords(i, j, k) = Vector3D(row[ix], row[iy], row[iz]);
+            }
 
             if (hasNuTilde && iNuTilde < row.size()) {
                 inputNu(i, j, k) = row[iNuTilde];
@@ -130,13 +144,21 @@ void TurbulenceModelSA::initializeFromRestartFile() {
             pointCount++;
         }
 
-        bool isAxisymmetric = (_config.getRestartType() == "axisymmetric" && NI == _ni && NJ == _nj);
+        std::string restartType = _config.getRestartType();
+        bool isAxisymmetric = (restartType == "axisymmetric" ||
+                               restartType == "nearest_neighbor_axisymmetric" ||
+                               _config.getTopology() == Topology::AXISYMMETRIC ||
+                               (NK == 1 && _nk > 1 && _mesh.isPeriodicityActive()));
 
-        if (NI == _ni && NJ == _nj && NK == _nk) {
+        bool isNearestNeighbor = (restartType == "nearest_neighbor" ||
+                                  restartType == "nearest_neighbor_axisymmetric" ||
+                                  (NI != _ni || NJ != _nj || NK != _nk));
+
+        if (!isNearestNeighbor && NI == _ni && NJ == _nj && NK == _nk) {
             _nuHat = inputNu;
             std::cout << "Turbulence model SA initialized from restart file (" 
                       << (hasNuTilde ? "exact Nu Tilde" : "reconstructed from Eddy Viscosity") << ").\n";
-        } else if (isAxisymmetric) {
+        } else if (!isNearestNeighbor && isAxisymmetric && NI == _ni && NJ == _nj) {
             for (size_t i = 0; i < _ni; ++i) {
                 for (size_t j = 0; j < _nj; ++j) {
                     for (size_t k = 0; k < _nk; ++k) {
@@ -145,10 +167,56 @@ void TurbulenceModelSA::initializeFromRestartFile() {
                 }
             }
             std::cout << "Turbulence model SA initialized from axisymmetric restart file.\n";
+        } else if (hasCoords) {
+            if (isAxisymmetric) {
+                std::vector<std::array<FloatType, 2>> coarsePointsXR(totalPoints);
+                for (size_t idx = 0; idx < totalPoints; ++idx) {
+                    Vector3D pt = inputCoords[idx];
+                    FloatType r = std::sqrt(pt.y() * pt.y() + pt.z() * pt.z());
+                    coarsePointsXR[idx] = {pt.x(), r};
+                }
+
+                KDTree<2> tree(coarsePointsXR);
+
+                #pragma omp parallel for
+                for (int64_t i = 0; i < static_cast<int64_t>(_ni); ++i) {
+                    for (size_t j = 0; j < _nj; ++j) {
+                        for (size_t k = 0; k < _nk; ++k) {
+                            Vector3D pt = _mesh.getVertex(i, j, k);
+                            FloatType rTarget = std::sqrt(pt.y() * pt.y() + pt.z() * pt.z());
+                            size_t bestIdx = tree.findNearest({pt.x(), rTarget});
+                            _nuHat(i, j, k) = inputNu[bestIdx];
+                        }
+                    }
+                }
+                std::cout << "Turbulence model SA initialized from axisymmetric nearest-neighbor restart file (" 
+                          << (hasNuTilde ? "exact Nu Tilde" : "reconstructed from Eddy Viscosity") << ").\n";
+            } else {
+                std::vector<std::array<FloatType, 3>> coarsePointsXYZ(totalPoints);
+                for (size_t idx = 0; idx < totalPoints; ++idx) {
+                    Vector3D pt = inputCoords[idx];
+                    coarsePointsXYZ[idx] = {pt.x(), pt.y(), pt.z()};
+                }
+
+                KDTree<3> tree(coarsePointsXYZ);
+
+                #pragma omp parallel for
+                for (int64_t i = 0; i < static_cast<int64_t>(_ni); ++i) {
+                    for (size_t j = 0; j < _nj; ++j) {
+                        for (size_t k = 0; k < _nk; ++k) {
+                            Vector3D pt = _mesh.getVertex(i, j, k);
+                            size_t bestIdx = tree.findNearest({pt.x(), pt.y(), pt.z()});
+                            _nuHat(i, j, k) = inputNu[bestIdx];
+                        }
+                    }
+                }
+                std::cout << "Turbulence model SA initialized from Cartesian nearest-neighbor restart file (" 
+                          << (hasNuTilde ? "exact Nu Tilde" : "reconstructed from Eddy Viscosity") << ").\n";
+            }
         } else {
             std::cout << "Warning: Restart dimensions (" << NI << "," << NJ << "," << NK 
                       << ") do not match current grid (" << _ni << "," << _nj << "," << _nk 
-                      << "). Using default initialization.\n";
+                      << ") and coordinates are missing. Using default initialization.\n";
             initializeFromZero();
         }
     } else {

@@ -1,4 +1,5 @@
 #include "solver.hpp"
+#include "kdtree.hpp"
 #include "math_utils.hpp"
 #include "types.hpp"
 #include <iostream>
@@ -682,6 +683,7 @@ void Solver::initializeSolutionFromRestart(){
     std::string restartFileName = _config.getRestartFilepath();
     
     size_t NI=0, NJ=0, NK=0;    
+    Matrix3D<Vector3D> inputCoordinates;
     Matrix3D<FloatType> inputDensity;
     Matrix3D<FloatType> inputVelX;
     Matrix3D<FloatType> inputVelY;
@@ -695,6 +697,7 @@ void Solver::initializeSolutionFromRestart(){
         NI, 
         NJ, 
         NK, 
+        inputCoordinates,
         inputDensity, 
         inputVelX, 
         inputVelY, 
@@ -703,17 +706,42 @@ void Solver::initializeSolutionFromRestart(){
         inputForceViscous, 
         inputForceInviscid);
 
-    if (NI != _nPointsI || NJ != _nPointsJ || NK != _nPointsK) {
-        if (NI == _nPointsI && NJ == _nPointsJ && _config.getRestartType()=="axisymmetric") {
+    std::string restartType = _config.getRestartType();
+
+    if (restartType == "nearest_neighbor" || restartType == "nearest_neighbor_axisymmetric") {
+        nearestNeighborRestart(
+            inputCoordinates,
+            inputDensity, 
+            inputVelX, 
+            inputVelY, 
+            inputVelZ, 
+            inputTemperature, 
+            inputForceViscous, 
+            inputForceInviscid);
+    }
+    else if (NI != _nPointsI || NJ != _nPointsJ || NK != _nPointsK) {
+        if (NI == _nPointsI && NJ == _nPointsJ && restartType == "axisymmetric") {
             axisymmetricRestart(inputDensity, inputVelX, inputVelY, inputVelZ, inputTemperature);
         }
-        else if (NI == _nPointsI && NJ == _nPointsJ && _config.getRestartType()!="axisymmetric") {
+        else if (restartType == "standard") {
             throw std::runtime_error(
-                "Restart file dimensions (I,J) match solver but K does not. "
-                "To restart in axisymmetric mode specify RESTART_TYPE=axisymmetric.");
+                "Restart file dimensions (" + std::to_string(NI) + "," + std::to_string(NJ) + "," + std::to_string(NK) +
+                ") do not match solver dimensions (" + std::to_string(_nPointsI) + "," + std::to_string(_nPointsJ) + "," + std::to_string(_nPointsK) + 
+                ") and RESTART_TYPE=standard was requested.");
         }
         else {
-            throw std::runtime_error("Restart file dimensions do not match solver dimensions.");
+            std::cout << "Restart file dimensions (" << NI << "," << NJ << "," << NK 
+                      << ") do not match solver dimensions (" << _nPointsI << "," << _nPointsJ << "," << _nPointsK 
+                      << "). Using nearest-neighbor interpolation.\n";
+            nearestNeighborRestart(
+                inputCoordinates,
+                inputDensity, 
+                inputVelX, 
+                inputVelY, 
+                inputVelZ, 
+                inputTemperature, 
+                inputForceViscous, 
+                inputForceInviscid);
         }
     }
     else {
@@ -726,7 +754,6 @@ void Solver::initializeSolutionFromRestart(){
             inputForceViscous, 
             inputForceInviscid);
     }
-    
 }
 
 
@@ -799,11 +826,130 @@ void Solver::axisymmetricRestart(
 }
 
 
+void Solver::nearestNeighborRestart(
+    const Matrix3D<Vector3D> &inputCoordinates,
+    const Matrix3D<FloatType> &inputDensity, 
+    const Matrix3D<FloatType> &inputVelX, 
+    const Matrix3D<FloatType> &inputVelY, 
+    const Matrix3D<FloatType> &inputVelZ, 
+    const Matrix3D<FloatType> &inputTemperature, 
+    const Matrix3D<Vector3D> &inputForceViscous, 
+    const Matrix3D<Vector3D> &inputForceInviscid) {
+
+    size_t NI = inputDensity.sizeI();
+    size_t NJ = inputDensity.sizeJ();
+    size_t NK = inputDensity.sizeK();
+    size_t totalPoints = NI * NJ * NK;
+
+    if (totalPoints == 0) {
+        throw std::runtime_error("Cannot perform nearest-neighbor restart: restart data is empty.");
+    }
+
+    std::string restartType = _config.getRestartType();
+    bool isAxisymmetric = (restartType == "axisymmetric" ||
+                           restartType == "nearest_neighbor_axisymmetric" ||
+                           _topology == Topology::AXISYMMETRIC ||
+                           (NK == 1 && _nPointsK > 1 && _mesh.isPeriodicityActive()));
+
+    if (isAxisymmetric) {
+        std::vector<std::array<FloatType, 2>> coarsePointsXR(totalPoints);
+        for (size_t idx = 0; idx < totalPoints; ++idx) {
+            Vector3D pt = inputCoordinates[idx];
+            FloatType r = std::sqrt(pt.y() * pt.y() + pt.z() * pt.z());
+            coarsePointsXR[idx] = {pt.x(), r};
+        }
+
+        KDTree<2> tree(coarsePointsXR);
+
+        #pragma omp parallel for
+        for (int64_t i = 0; i < static_cast<int64_t>(_nPointsI); ++i) {
+            for (size_t j = 0; j < _nPointsJ; ++j) {
+                for (size_t k = 0; k < _nPointsK; ++k) {
+                    Vector3D pt = _mesh.getVertex(i, j, k);
+                    FloatType rTarget = std::sqrt(pt.y() * pt.y() + pt.z() * pt.z());
+                    FloatType thetaTarget = atan2FromZeroTo2pi(pt.z(), pt.y());
+
+                    size_t bestIdx = tree.findNearest({pt.x(), rTarget});
+
+                    Vector3D ptCoarse = inputCoordinates[bestIdx];
+                    FloatType thetaCoarse = atan2FromZeroTo2pi(ptCoarse.z(), ptCoarse.y());
+                    FloatType thetaRot = thetaTarget - thetaCoarse;
+
+                    FloatType rho = inputDensity[bestIdx];
+                    FloatType T   = inputTemperature[bestIdx];
+
+                    Vector3D velCoarse(inputVelX[bestIdx], inputVelY[bestIdx], inputVelZ[bestIdx]);
+                    Vector3D velPoint = rotateVectorAlongXAxis(velCoarse, thetaRot);
+
+                    _conservativeSolution._rho(i, j, k)  = rho;
+                    _conservativeSolution._rhoU(i, j, k) = rho * velPoint.x();
+                    _conservativeSolution._rhoV(i, j, k) = rho * velPoint.y();
+                    _conservativeSolution._rhoW(i, j, k) = rho * velPoint.z();
+
+                    FloatType pressure = _fluid->computePressure_rho_T(rho, T);
+                    FloatType staticEnergy = _fluid->computeStaticEnergy_p_rho(pressure, rho);
+                    FloatType totalEnergy = staticEnergy + 0.5 * velPoint.dot(velPoint);
+                    _conservativeSolution._rhoE(i, j, k) = rho * totalEnergy;
+
+                    if (_isBfmActive) {
+                        _inviscidForce(i, j, k) = rotateVectorAlongXAxis(inputForceInviscid[bestIdx], thetaRot);
+                        _viscousForce(i, j, k)  = rotateVectorAlongXAxis(inputForceViscous[bestIdx], thetaRot);
+                    }
+                }
+            }
+        }
+        std::cout << "Axisymmetric nearest-neighbor initialization done.\n";
+    }
+    else {
+        std::vector<std::array<FloatType, 3>> coarsePointsXYZ(totalPoints);
+        for (size_t idx = 0; idx < totalPoints; ++idx) {
+            Vector3D pt = inputCoordinates[idx];
+            coarsePointsXYZ[idx] = {pt.x(), pt.y(), pt.z()};
+        }
+
+        KDTree<3> tree(coarsePointsXYZ);
+
+        #pragma omp parallel for
+        for (int64_t i = 0; i < static_cast<int64_t>(_nPointsI); ++i) {
+            for (size_t j = 0; j < _nPointsJ; ++j) {
+                for (size_t k = 0; k < _nPointsK; ++k) {
+                    Vector3D pt = _mesh.getVertex(i, j, k);
+                    size_t bestIdx = tree.findNearest({pt.x(), pt.y(), pt.z()});
+
+                    FloatType rho = inputDensity[bestIdx];
+                    FloatType u   = inputVelX[bestIdx];
+                    FloatType v   = inputVelY[bestIdx];
+                    FloatType w   = inputVelZ[bestIdx];
+                    FloatType T   = inputTemperature[bestIdx];
+
+                    _conservativeSolution._rho(i, j, k)  = rho;
+                    _conservativeSolution._rhoU(i, j, k) = rho * u;
+                    _conservativeSolution._rhoV(i, j, k) = rho * v;
+                    _conservativeSolution._rhoW(i, j, k) = rho * w;
+
+                    FloatType pressure = _fluid->computePressure_rho_T(rho, T);
+                    FloatType staticEnergy = _fluid->computeStaticEnergy_p_rho(pressure, rho);
+                    FloatType totalEnergy = staticEnergy + 0.5 * (u * u + v * v + w * w);
+                    _conservativeSolution._rhoE(i, j, k) = rho * totalEnergy;
+
+                    if (_isBfmActive) {
+                        _inviscidForce(i, j, k) = inputForceInviscid[bestIdx];
+                        _viscousForce(i, j, k)  = inputForceViscous[bestIdx];
+                    }
+                }
+            }
+        }
+        std::cout << "Cartesian nearest-neighbor initialization done.\n";
+    }
+}
+
+
 void Solver::readRestartFile(
     const std::string &restartFileName, 
     size_t &NI, 
     size_t &NJ, 
     size_t &NK,
+    Matrix3D<Vector3D> &inputCoordinates,
     Matrix3D<FloatType> &inputDensity, 
     Matrix3D<FloatType> &inputVelX, 
     Matrix3D<FloatType> &inputVelY, 
@@ -824,6 +970,7 @@ void Solver::readRestartFile(
     std::getline(file, line); NJ = std::stoi(line.substr(line.find('=') + 1));
     std::getline(file, line); NK = std::stoi(line.substr(line.find('=') + 1));
 
+    inputCoordinates.resize(NI, NJ, NK);
     inputDensity.resize(NI, NJ, NK);
     inputVelX.resize(NI, NJ, NK);
     inputVelY.resize(NI, NJ, NK);
@@ -840,8 +987,23 @@ void Solver::readRestartFile(
     std::unordered_map<std::string, int> columnIndex;
     int idx = 0;
     while (std::getline(headerStream, column, ',')) {
+        size_t first = column.find_first_not_of(" \t\r\n");
+        size_t last = column.find_last_not_of(" \t\r\n");
+        if (first != std::string::npos) {
+            column = column.substr(first, last - first + 1);
+        }
         columnIndex[column] = idx++;
     }
+
+    // Optional coordinate columns
+    bool hasX = (columnIndex.find("x") != columnIndex.end() || columnIndex.find("X") != columnIndex.end());
+    bool hasY = (columnIndex.find("y") != columnIndex.end() || columnIndex.find("Y") != columnIndex.end());
+    bool hasZ = (columnIndex.find("z") != columnIndex.end() || columnIndex.find("Z") != columnIndex.end());
+    bool hasCoords = (hasX && hasY && hasZ);
+    constexpr size_t UNSET = std::numeric_limits<size_t>::max();
+    size_t ix = columnIndex.count("x") ? columnIndex["x"] : (columnIndex.count("X") ? columnIndex["X"] : UNSET);
+    size_t iy = columnIndex.count("y") ? columnIndex["y"] : (columnIndex.count("Y") ? columnIndex["Y"] : UNSET);
+    size_t iz = columnIndex.count("z") ? columnIndex["z"] : (columnIndex.count("Z") ? columnIndex["Z"] : UNSET);
 
     // Get indexes of the fields of interest (primary fields should always be available in the restart)
     size_t iDensity   = columnIndex.at("Density");
@@ -851,7 +1013,6 @@ void Solver::readRestartFile(
     size_t iTotEnergy = columnIndex.at("Total Energy");
 
     // these could also not be there, not a problem
-    constexpr size_t UNSET = std::numeric_limits<size_t>::max();
     size_t iForceInviscidX{UNSET};
     size_t iForceInviscidY{UNSET};
     size_t iForceInviscidZ{UNSET};
@@ -879,6 +1040,11 @@ void Solver::readRestartFile(
         std::vector<FloatType> row;
         while (std::getline(ss, value, ',')) {
             row.push_back(std::stod(value));
+        }
+
+        // Store coordinates if available
+        if (hasCoords && ix < row.size() && iy < row.size() && iz < row.size()) {
+            inputCoordinates(i, j, k) = Vector3D(row[ix], row[iy], row[iz]);
         }
 
         // Store using current indices

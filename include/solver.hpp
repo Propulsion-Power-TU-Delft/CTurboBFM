@@ -215,6 +215,7 @@ private:
         size_t &NI, 
         size_t &NJ, 
         size_t &NK,
+        Matrix3D<Vector3D> &inputCoordinates,
         Matrix3D<FloatType> &inputDensity, 
         Matrix3D<FloatType> &inputVelX, 
         Matrix3D<FloatType> &inputVelY, 
@@ -229,6 +230,16 @@ private:
         Matrix3D<FloatType> &inputVelY, 
         Matrix3D<FloatType> &inputVelZ, 
         Matrix3D<FloatType> &inputTemperature);
+
+    void nearestNeighborRestart(
+        const Matrix3D<Vector3D> &inputCoordinates,
+        const Matrix3D<FloatType> &inputDensity, 
+        const Matrix3D<FloatType> &inputVelX, 
+        const Matrix3D<FloatType> &inputVelY, 
+        const Matrix3D<FloatType> &inputVelZ, 
+        const Matrix3D<FloatType> &inputTemperature, 
+        const Matrix3D<Vector3D> &inputForceViscous, 
+        const Matrix3D<Vector3D> &inputForceInviscid);
 
     void standardRestart(
         Matrix3D<FloatType> &inputDensity, 
