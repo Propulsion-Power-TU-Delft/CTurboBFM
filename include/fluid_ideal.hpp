@@ -13,6 +13,20 @@ public:
 
     FloatType computePressure_rho_e(FloatType rho, FloatType e) const override;
 
+    FloatType computeTemperature_rho_e(FloatType rho, FloatType e) const override;
+
+    FloatType computeSoundSpeed_rho_e(FloatType rho, FloatType e) const override;
+
+    FloatType computeEntropy_rho_e(FloatType rho, FloatType e) const override;
+
+    FloatType computeDensity_p_s(FloatType p, FloatType s) const override;
+
+    FloatType computeTemperature_p_s(FloatType p, FloatType s) const override;
+
+    FloatType computeInternalEnergy_p_s(FloatType p, FloatType s) const override;
+
+    FloatType computeFundamentalDerivative_rho_e(FloatType rho, FloatType e) const override;
+
     FloatType computePressure_rho_T(FloatType rho, FloatType Temp) const override;
     
     FloatType computeSoundSpeed_p_rho(FloatType p, FloatType rho) const override;

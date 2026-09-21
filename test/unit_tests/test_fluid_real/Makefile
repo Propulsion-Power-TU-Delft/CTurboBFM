@@ -7,7 +7,7 @@ LDFLAGS = -L ~/libraries/lib -L /opt/homebrew/opt/libomp/lib -lomp
 LDLIBS = -lgtest -lgtest_main -pthread
 
 # Sources and objects
-SRC = main.cpp ../../../src/fluid_ideal.cpp ../../../src/config.cpp ../../../src/math_utils.cpp
+SRC = main.cpp ../../../src/fluid_real.cpp ../../../src/config.cpp ../../../src/math_utils.cpp
 OBJ = $(SRC:.cpp=.o)
 
 # Target
@@ -26,4 +26,4 @@ $(TARGET): $(OBJ)
 
 # Clean
 clean:
-	rm -f $(OBJ) $(TARGET)
+	rm -f main.o ../../../src/fluid_real.o main

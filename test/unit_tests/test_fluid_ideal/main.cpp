@@ -28,7 +28,57 @@ TEST(FluidIdealTest, TestSoundSpeed_p_rho) {
 
     std::vector<FloatType> computedStaticEnergy;
     ASSERT_DOUBLE_EQ(fluid.computeSoundSpeed_p_rho(p, rho), expectedValue);
-    
+}
+
+TEST(FluidIdealTest, TestThermodynamics_rho_e) {
+    FloatType gamma {1.4}, R {287.05};
+    FluidIdeal fluid(gamma, R);
+
+    FloatType T_ref = 300.0;
+    FloatType p_ref = 101325.0;
+    FloatType rho_ref = fluid.computeDensity_p_T(p_ref, T_ref);
+    FloatType cv = R / (gamma - 1.0);
+    FloatType e_ref = cv * T_ref;
+
+    // Temperature from (rho, e)
+    EXPECT_NEAR(fluid.computeTemperature_rho_e(rho_ref, e_ref), T_ref, 1e-10);
+
+    // Pressure from (rho, e)
+    EXPECT_NEAR(fluid.computePressure_rho_e(rho_ref, e_ref), p_ref, 1e-6);
+
+    // Sound speed from (rho, e) vs (p, rho)
+    FloatType a1 = fluid.computeSoundSpeed_rho_e(rho_ref, e_ref);
+    FloatType a2 = fluid.computeSoundSpeed_p_rho(p_ref, rho_ref);
+    EXPECT_DOUBLE_EQ(a1, a2);
+    EXPECT_NEAR(a1, std::sqrt(gamma * R * T_ref), 1e-10);
+
+    // Isentropic exponent and fundamental derivative
+    EXPECT_NEAR(fluid.computeIsentropicExponent_rho_e(rho_ref, e_ref), gamma, 1e-10);
+    EXPECT_NEAR(fluid.computeFundamentalDerivative_rho_e(rho_ref, e_ref), 0.5 * (gamma + 1.0), 1e-10);
+}
+
+TEST(FluidIdealTest, TestIsentropicState_p_s) {
+    FloatType gamma {1.4}, R {287.05};
+    FluidIdeal fluid(gamma, R);
+
+    FloatType T_orig = 350.0;
+    FloatType p_orig = 200000.0;
+    FloatType s_orig = fluid.computeEntropy_p_T(p_orig, T_orig);
+
+    // Round-trip (p_orig, s_orig) -> T, rho, e
+    FloatType T_recovered = fluid.computeTemperature_p_s(p_orig, s_orig);
+    FloatType rho_recovered = fluid.computeDensity_p_s(p_orig, s_orig);
+    FloatType e_recovered = fluid.computeInternalEnergy_p_s(p_orig, s_orig);
+
+    EXPECT_NEAR(T_recovered, T_orig, 1e-10);
+    EXPECT_NEAR(rho_recovered, fluid.computeDensity_p_T(p_orig, T_orig), 1e-10);
+    EXPECT_NEAR(e_recovered, fluid.computeStaticEnergy_p_rho(p_orig, rho_recovered), 1e-10);
+
+    // Isentropic expansion to p_expanded: s remains constant
+    FloatType p_expanded = 100000.0;
+    FloatType T_expanded = fluid.computeTemperature_p_s(p_expanded, s_orig);
+    FloatType expectedT_expanded = T_orig * std::pow(p_expanded / p_orig, (gamma - 1.0) / gamma);
+    EXPECT_NEAR(T_expanded, expectedT_expanded, 1e-8);
 }
 
 

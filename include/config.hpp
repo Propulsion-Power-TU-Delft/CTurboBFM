@@ -197,6 +197,8 @@ public:
 
     FluidModel getFluidModel() const;
 
+    std::string getFluidTableFile() const;
+
     ViscosityModel getViscosityModel() const;
 
     AdvectionScheme getAdvectionScheme() const;

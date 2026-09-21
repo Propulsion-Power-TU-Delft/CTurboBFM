@@ -15,6 +15,38 @@ FloatType FluidIdeal::computePressure_rho_e(FloatType rho, FloatType e) const {
     return (_gamma - 1) * rho * e;
 }
 
+FloatType FluidIdeal::computeTemperature_rho_e(FloatType rho, FloatType e) const {
+    return e / _cv;
+}
+
+FloatType FluidIdeal::computeSoundSpeed_rho_e(FloatType rho, FloatType e) const {
+    return std::sqrt(_gamma * (_gamma - 1.0) * e);
+}
+
+FloatType FluidIdeal::computeEntropy_rho_e(FloatType rho, FloatType e) const {
+    FloatType p = computePressure_rho_e(rho, e);
+    FloatType T = computeTemperature_rho_e(rho, e);
+    return computeEntropy_p_T(p, T);
+}
+
+FloatType FluidIdeal::computeTemperature_p_s(FloatType p, FloatType s) const {
+    return 288.15 * std::exp((s + _R * std::log(p / 101325.0)) / _cp);
+}
+
+FloatType FluidIdeal::computeDensity_p_s(FloatType p, FloatType s) const {
+    FloatType T = computeTemperature_p_s(p, s);
+    return p / (_R * T);
+}
+
+FloatType FluidIdeal::computeInternalEnergy_p_s(FloatType p, FloatType s) const {
+    FloatType T = computeTemperature_p_s(p, s);
+    return _cv * T;
+}
+
+FloatType FluidIdeal::computeFundamentalDerivative_rho_e(FloatType rho, FloatType e) const {
+    return 0.5 * (_gamma + 1.0);
+}
+
 FloatType FluidIdeal::computePressure_rho_T(FloatType rho, FloatType Temp) const {
     return rho * _R * Temp;
 }

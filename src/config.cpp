@@ -388,6 +388,10 @@ FluxLimiter Config::getFluxLimiter() const {
     return model;
 }
 
+std::string Config::getFluidTableFile() const {
+    return parseString("FLUID_TABLE_FILE", false);
+}
+
 ViscosityModel Config::getViscosityModel() const {
     std::string value = parseString("FLUID_VISCOSITY_MODEL", true);
     if (value == "None") {

@@ -45,7 +45,8 @@ void Solver::buildFluidModel() {
         _fluid = std::make_unique<FluidIdeal>(_config.getFluidGamma(), _config.getFluidGasConstant());
     }
     else if (_fluidModel == FluidModel::REAL){
-        throw std::runtime_error("Real fluid model not implemented yet.");
+        std::string tableFile = _config.getFluidTableFile();
+        _fluid = std::make_unique<FluidReal>(tableFile);
     }
     else{
         throw std::runtime_error("Unsupported fluid model selected.");

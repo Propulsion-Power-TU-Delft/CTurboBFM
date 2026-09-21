@@ -15,6 +15,7 @@
 #include "mesh.hpp"
 #include "fluid_base.hpp"
 #include "fluid_ideal.hpp"
+#include "fluid_real.hpp"
 #include "advection_base.hpp"
 #include "advection_jst.hpp"
 #include "advection_roe.hpp"
