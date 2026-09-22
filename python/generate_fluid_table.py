@@ -21,10 +21,15 @@ except ImportError:
 
 def generate_table(fluid_name, p_min, p_max, T_min, T_max,
                    n_rho=80, n_e=80, n_p=50, n_T=50, n_s=50,
-                   output_path=None):
+                   output_path=None, phase=None,
+                   rho_min=None, rho_max=None,
+                   e_min=None, e_max=None,
+                   s_min=None, s_max=None):
     print(f"Generating fluid table for {fluid_name}...")
     print(f"Pressure range:    [{p_min:.2e}, {p_max:.2e}] Pa")
     print(f"Temperature range: [{T_min:.2f}, {T_max:.2f}] K")
+    if phase:
+        print(f"Phase filter:      {phase}")
 
     # Critical and reference properties
     try:
@@ -40,14 +45,18 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
     R_gas = R_u / molar_mass
 
     # Sample corners and edge points to determine rho and e bounds
-    test_p = np.linspace(p_min, p_max, 10)
-    test_T = np.linspace(T_min, T_max, 10)
+    test_p = np.linspace(p_min, p_max, 15)
+    test_T = np.linspace(T_min, T_max, 15)
     rhos = []
     es = []
     ss = []
     for p in test_p:
         for T in test_T:
             try:
+                if phase == "gas":
+                    ph = CP.PhaseSI("P", p, "T", T, fluid_name)
+                    if ph not in ["gas", "supercritical", "supercritical_gas"]:
+                        continue
                 rho_val = CP.PropsSI("D", "P", p, "T", T, fluid_name)
                 e_val = CP.PropsSI("U", "P", p, "T", T, fluid_name)
                 s_val = CP.PropsSI("S", "P", p, "T", T, fluid_name)
@@ -61,12 +70,16 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
     if len(rhos) == 0:
         raise ValueError(f"No valid state points found for fluid {fluid_name} in the specified (p, T) range.")
 
-    rho_min = min(rhos) * 0.95
-    rho_max = max(rhos) * 1.05
-    e_min = min(es) * 0.95
-    e_max = max(es) * 1.05
-    s_min = min(ss) * 0.98
-    s_max = max(ss) * 1.02
+    calc_rho_min = min(rhos) * 0.70 if rho_min is None else rho_min
+    calc_rho_max = max(rhos) * 1.50 if rho_max is None else rho_max
+    calc_e_min = min(es) * 0.70 if e_min is None else e_min
+    calc_e_max = max(es) * 1.15 if e_max is None else e_max
+    calc_s_min = min(ss) * 0.95 if s_min is None else s_min
+    calc_s_max = max(ss) * 1.05 if s_max is None else s_max
+
+    rho_min, rho_max = calc_rho_min, calc_rho_max
+    e_min, e_max = calc_e_min, calc_e_max
+    s_min, s_max = calc_s_min, calc_s_max
 
     print(f"Computed density bounds: [{rho_min:.2f}, {rho_max:.2f}] kg/m3")
     print(f"Computed internal energy bounds: [{e_min:.2f}, {e_max:.2f}] J/kg")
@@ -94,7 +107,10 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
                 try:
                     s = CP.PropsSI("S", "P", p, "T", T, fluid_name)
                 except Exception:
-                    s = 1500.0
+                    try:
+                        s = CP.PropsSI("S", "P", p, "Q", 1.0, fluid_name)
+                    except Exception:
+                        s = 1500.0
 
             # Query A (Speed of sound)
             try:
@@ -103,8 +119,11 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
                 try:
                     a = CP.PropsSI("A", "P", p, "T", T, fluid_name)
                 except Exception:
-                    # Approximation: a = sqrt(gamma * p / rho)
-                    a = np.sqrt(max(1.0, 1.25 * p / rho))
+                    try:
+                        a = CP.PropsSI("A", "P", p, "Q", 1.0, fluid_name)
+                    except Exception:
+                        # Approximation: a = sqrt(gamma * p / rho)
+                        a = np.sqrt(max(1.0, 1.25 * p / rho))
 
             # Query transport properties
             try:
@@ -113,7 +132,10 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
                 try:
                     mu = CP.PropsSI("V", "P", p, "T", T, fluid_name)
                 except Exception:
-                    mu = 2.0e-5
+                    try:
+                        mu = CP.PropsSI("V", "P", p, "Q", 1.0, fluid_name)
+                    except Exception:
+                        mu = 2.0e-5
 
             try:
                 kappa = CP.PropsSI("L", "D", rho, "U", e, fluid_name)
@@ -121,7 +143,10 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
                 try:
                     kappa = CP.PropsSI("L", "P", p, "T", T, fluid_name)
                 except Exception:
-                    kappa = 0.03
+                    try:
+                        kappa = CP.PropsSI("L", "P", p, "Q", 1.0, fluid_name)
+                    except Exception:
+                        kappa = 0.03
 
             data_rho_e.append([p, T, a, s, mu, kappa])
 
@@ -152,10 +177,23 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
     for p in p_grid:
         for T in T_grid:
             try:
-                rho = CP.PropsSI("D", "P", p, "T", T, fluid_name)
-                e = CP.PropsSI("U", "P", p, "T", T, fluid_name)
-                a = CP.PropsSI("A", "P", p, "T", T, fluid_name)
-                s = CP.PropsSI("S", "P", p, "T", T, fluid_name)
+                if phase == "gas":
+                    ph = CP.PhaseSI("P", p, "T", T, fluid_name)
+                    if ph == "liquid":
+                        rho = CP.PropsSI("D", "P", p, "Q", 1.0, fluid_name)
+                        e = CP.PropsSI("U", "P", p, "Q", 1.0, fluid_name)
+                        a = CP.PropsSI("A", "P", p, "Q", 1.0, fluid_name)
+                        s = CP.PropsSI("S", "P", p, "Q", 1.0, fluid_name)
+                    else:
+                        rho = CP.PropsSI("D", "P", p, "T", T, fluid_name)
+                        e = CP.PropsSI("U", "P", p, "T", T, fluid_name)
+                        a = CP.PropsSI("A", "P", p, "T", T, fluid_name)
+                        s = CP.PropsSI("S", "P", p, "T", T, fluid_name)
+                else:
+                    rho = CP.PropsSI("D", "P", p, "T", T, fluid_name)
+                    e = CP.PropsSI("U", "P", p, "T", T, fluid_name)
+                    a = CP.PropsSI("A", "P", p, "T", T, fluid_name)
+                    s = CP.PropsSI("S", "P", p, "T", T, fluid_name)
             except Exception:
                 rho = p / (R_gas * T)
                 e = R_gas / 0.4 * T
@@ -239,10 +277,17 @@ def generate_table(fluid_name, p_min, p_max, T_min, T_max,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate CoolProp thermodynamic look-up table for CTurboBFM.")
     parser.add_argument("--fluid", type=str, default="CO2", help="Fluid name (e.g. CO2, Nitrogen, MDM, R134a)")
+    parser.add_argument("--phase", type=str, default=None, choices=["gas", "liquid", "all"], help="Phase filter (e.g. gas)")
     parser.add_argument("--p_min", type=float, default=5e6, help="Minimum pressure [Pa]")
     parser.add_argument("--p_max", type=float, default=12e6, help="Maximum pressure [Pa]")
     parser.add_argument("--T_min", type=float, default=305.0, help="Minimum temperature [K]")
     parser.add_argument("--T_max", type=float, default=450.0, help="Maximum temperature [K]")
+    parser.add_argument("--rho_min", type=float, default=None, help="Explicit minimum density [kg/m3]")
+    parser.add_argument("--rho_max", type=float, default=None, help="Explicit maximum density [kg/m3]")
+    parser.add_argument("--e_min", type=float, default=None, help="Explicit minimum internal energy [J/kg]")
+    parser.add_argument("--e_max", type=float, default=None, help="Explicit maximum internal energy [J/kg]")
+    parser.add_argument("--s_min", type=float, default=None, help="Explicit minimum entropy [J/kg-K]")
+    parser.add_argument("--s_max", type=float, default=None, help="Explicit maximum entropy [J/kg-K]")
     parser.add_argument("--n_rho", type=int, default=60, help="Number of density points")
     parser.add_argument("--n_e", type=int, default=60, help="Number of internal energy points")
     parser.add_argument("--n_p", type=int, default=40, help="Number of pressure points")
@@ -262,5 +307,12 @@ if __name__ == "__main__":
         n_p=args.n_p,
         n_T=args.n_T,
         n_s=args.n_s,
-        output_path=args.output
+        output_path=args.output,
+        phase=args.phase,
+        rho_min=args.rho_min,
+        rho_max=args.rho_max,
+        e_min=args.e_min,
+        e_max=args.e_max,
+        s_min=args.s_min,
+        s_max=args.s_max
     )

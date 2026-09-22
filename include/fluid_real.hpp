@@ -109,7 +109,7 @@ public:
     void setTransportProperties(const Config &config) override;
     ViscosityModel getViscosityModel() const override { return _viscosityModel; }
     FloatType computeMolecularDynamicViscosity(FloatType temperature) const override;
-    FloatType computeMolecularDynamicViscosity_rho_e(FloatType rho, FloatType e) const;
+    FloatType computeMolecularDynamicViscosity_rho_e(FloatType rho, FloatType e) const override;
     FloatType computeThermalConductivity(FloatType dynamicViscosity) const override;
     FloatType computeThermalConductivity_rho_e(FloatType rho, FloatType e) const;
 

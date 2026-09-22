@@ -131,7 +131,8 @@ public:
 
     FloatType getFluidGasConstant() const {return parseFloat("FLUID_R_CONSTANT");} 
 
-    FloatType getFluidKinematicViscosity() const {return parseFloat("FLUID_KINEMATIC_VISCOSITY");} 
+    bool hasFluidKinematicViscosity() const {return has("FLUID_KINEMATIC_VISCOSITY");}
+    FloatType getFluidKinematicViscosity() const {return parseFloat("FLUID_KINEMATIC_VISCOSITY", 1e-5);} 
 
     FloatType getFluidPrandtlNumber() const {return parseFloat("FLUID_PRANDTL_NUMBER");}
 
@@ -224,6 +225,8 @@ public:
     std::string getFluidTableGeneratorScript() const;
     std::string getFluidTablePythonExecutable() const;
     bool getStopOnTableOutOfBounds() const;
+    bool hasFluidTablePhase() const { return has("FLUID_TABLE_PHASE"); }
+    std::string getFluidTablePhase() const { return parseString("FLUID_TABLE_PHASE", ""); }
 
     ViscosityModel getViscosityModel() const;
 
@@ -239,6 +242,8 @@ public:
     size_t getHistoryBufferSize() const {return static_cast<size_t>(parseInt("HISTORY_BUFFER_SIZE", getSolutionOutputFrequency()));}
 
     void printAllConfigValues() const;
+
+    std::string getTurboDirection() const {return parseString("TURBO_DIRECTION", "i");}
 
     FloatType computeRampedOutletPressure(const size_t iterCounter, const FloatType outletPressure) const;
 

@@ -143,9 +143,17 @@ public:
     virtual FloatType computeTotalEfficiency_PRtt_TRt(FloatType pressureRatio, FloatType temperatureRatio) const = 0;
 
     virtual FloatType computeTotalEfficiency_h(FloatType ht_in, FloatType ht_out, FloatType ht_out_s) const {
-        FloatType denom = ht_out - ht_in;
-        if (std::abs(denom) < 1e-12) return 1.0;
-        return (ht_out_s - ht_in) / denom;
+        FloatType delta_h = ht_out - ht_in;
+        FloatType delta_h_s = ht_out_s - ht_in;
+        if (std::abs(delta_h) < 1e-12) return 1.0;
+        if (delta_h >= 0.0) {
+            // Compressor / pump: isentropic work / actual work
+            return delta_h_s / delta_h;
+        } else {
+            // Turbine / expander: actual work / isentropic work
+            if (std::abs(delta_h_s) < 1e-12) return 1.0;
+            return delta_h / delta_h_s;
+        }
     }
 
     virtual FloatType getGamma() const = 0;
@@ -175,6 +183,11 @@ public:
     virtual ViscosityModel getViscosityModel() const { return ViscosityModel::SUTHERLAND; }
 
     virtual FloatType computeMolecularDynamicViscosity(FloatType temperature) const = 0;
+
+    virtual FloatType computeMolecularDynamicViscosity_rho_e(FloatType rho, FloatType e) const {
+        FloatType T = computeTemperature_rho_e(rho, e);
+        return computeMolecularDynamicViscosity(T);
+    }
 
     virtual FloatType computeThermalConductivity(FloatType dynamicViscosity) const = 0;
     

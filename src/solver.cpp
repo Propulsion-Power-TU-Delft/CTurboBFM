@@ -164,6 +164,9 @@ void Solver::generateFluidTable(const std::string& tableFile) {
         << " --n_p " << nP
         << " --n_T " << nT
         << " --n_s " << nS;
+    if (_config.hasFluidTablePhase()) {
+        cmd << " --phase \"" << _config.getFluidTablePhase() << "\"";
+    }
 
     std::cout << "[FluidReal] Auto-generating thermodynamic table for '" << fluidName << "'..." << std::endl;
     std::cout << "  Script:  " << scriptPath.string() << std::endl;
@@ -1508,9 +1511,19 @@ void Solver::updateMassFlows(const FlowSolution&solution){
 }
 
 
-void Solver::updateTurboPerformance(const FlowSolution&solution){
+void Solver::updateTurboPerformance(const FlowSolution& solution){
     
-    FloatType massFlow = 0.5 * (_massFlows[BoundaryIndex::I_START] + _massFlows[BoundaryIndex::I_END]);
+    std::string turboDir = _config.getTurboDirection();
+    std::array<BoundaryIndex, 2> bcIndices {BoundaryIndex::I_START, BoundaryIndex::I_END};
+    if (turboDir == "-i") {
+        bcIndices = {BoundaryIndex::I_END, BoundaryIndex::I_START};
+    } else if (turboDir == "j" || turboDir == "+j") {
+        bcIndices = {BoundaryIndex::J_START, BoundaryIndex::J_END};
+    } else if (turboDir == "-j") {
+        bcIndices = {BoundaryIndex::J_END, BoundaryIndex::J_START};
+    }
+
+    FloatType massFlow = 0.5 * (std::abs(_massFlows[bcIndices[0]]) + std::abs(_massFlows[bcIndices[1]]));
     if (_config.getTopology() == Topology::AXISYMMETRIC){
         massFlow *= 2.0 * M_PI / _mesh.getWedgeAngle();
     }
@@ -1522,9 +1535,19 @@ void Solver::updateTurboPerformance(const FlowSolution&solution){
     }
     _turboPerformance[TurboPerformance::MASS_FLOW].push_back(massFlow);
     
-    std::array<BoundaryIndex, 2> bcIndices {BoundaryIndex::I_START, BoundaryIndex::I_END};
     std::vector<FloatType> totalPressure;
     std::vector<FloatType> totalTemperature;
+    std::vector<FloatType> totalEnthalpy;
+    std::vector<FloatType> entropy;
+
+    auto getPrimitiveAtBoundary = [&](BoundaryIndex bIndex, size_t j, size_t k) {
+        if (bIndex == BoundaryIndex::I_START) return getPrimitiveVariablesFromConservative(solution.at(0, j, k));
+        if (bIndex == BoundaryIndex::I_END)   return getPrimitiveVariablesFromConservative(solution.at(_nPointsI - 1, j, k));
+        if (bIndex == BoundaryIndex::J_START) return getPrimitiveVariablesFromConservative(solution.at(j, 0, k));
+        if (bIndex == BoundaryIndex::J_END)   return getPrimitiveVariablesFromConservative(solution.at(j, _nPointsJ - 1, k));
+        return getPrimitiveVariablesFromConservative(solution.at(0, j, k));
+    };
+
     for (auto& bcIndex: bcIndices){
         Matrix2D<Vector3D> surface = _mesh.getMeshBoundary(bcIndex);
 
@@ -1533,47 +1556,77 @@ void Solver::updateTurboPerformance(const FlowSolution&solution){
         Matrix2D<FloatType> rhoUxPt(nj, nk);
         Matrix2D<FloatType> rhoUyPt(nj, nk);
         Matrix2D<FloatType> rhoUzPt(nj, nk);
+
         Matrix2D<FloatType> rhoUxTt(nj, nk);
         Matrix2D<FloatType> rhoUyTt(nj, nk);
         Matrix2D<FloatType> rhoUzTt(nj, nk);
 
+        Matrix2D<FloatType> rhoUxHt(nj, nk);
+        Matrix2D<FloatType> rhoUyHt(nj, nk);
+        Matrix2D<FloatType> rhoUzHt(nj, nk);
+
+        Matrix2D<FloatType> rhoUxS(nj, nk);
+        Matrix2D<FloatType> rhoUyS(nj, nk);
+        Matrix2D<FloatType> rhoUzS(nj, nk);
+
         for (size_t j=0; j<nj; j++){
             for (size_t k=0; k<nk; k++){
-                StateVector primitive;
-                if (bcIndex == BoundaryIndex::I_START){
-                    primitive = getPrimitiveVariablesFromConservative(solution.at(0,j,k));
-                }
-                else{
-                    primitive = getPrimitiveVariablesFromConservative(solution.at(_nPointsI-1,j,k));
-                }
+                StateVector primitive = getPrimitiveAtBoundary(bcIndex, j, k);
                 FloatType rho = primitive[0];
-                FloatType ux = primitive[1];
-                FloatType uy = primitive[2];
-                FloatType uz = primitive[3];
+                Vector3D vel = {primitive[1], primitive[2], primitive[3]};
                 FloatType et = primitive[4];
-                FloatType totalPressure = _fluid->computeTotalPressure_rho_u_et(rho, {ux,uy,uz}, et);
-                FloatType totalTemperature = _fluid->computeTotalTemperature_rho_u_et(rho, {ux,uy,uz}, et);
 
-                rhoUxPt(j,k) = rho * ux * totalPressure;
-                rhoUyPt(j,k) = rho * uy * totalPressure;
-                rhoUzPt(j,k) = rho * uz * totalPressure;
-                rhoUxTt(j,k) = rho * ux * totalTemperature;
-                rhoUyTt(j,k) = rho * uy * totalTemperature;
-                rhoUzTt(j,k) = rho * uz * totalTemperature;
+                FloatType pt = _fluid->computeTotalPressure_rho_u_et(rho, vel, et);
+                FloatType Tt = _fluid->computeTotalTemperature_rho_u_et(rho, vel, et);
+                FloatType ht = _fluid->computeTotalEnthalpy_rho_u_et(rho, vel, et);
+                FloatType s  = _fluid->computeEntropy_rho_u_et(rho, vel, et);
+
+                rhoUxPt(j,k) = rho * vel.x() * pt;
+                rhoUyPt(j,k) = rho * vel.y() * pt;
+                rhoUzPt(j,k) = rho * vel.z() * pt;
+
+                rhoUxTt(j,k) = rho * vel.x() * Tt;
+                rhoUyTt(j,k) = rho * vel.y() * Tt;
+                rhoUzTt(j,k) = rho * vel.z() * Tt;
+
+                rhoUxHt(j,k) = rho * vel.x() * ht;
+                rhoUyHt(j,k) = rho * vel.y() * ht;
+                rhoUzHt(j,k) = rho * vel.z() * ht;
+
+                rhoUxS(j,k)  = rho * vel.x() * s;
+                rhoUyS(j,k)  = rho * vel.y() * s;
+                rhoUzS(j,k)  = rho * vel.z() * s;
             }
         }
-        totalPressure.push_back(computeSurfaceIntegral(surface, rhoUxPt, rhoUyPt, rhoUzPt) / _massFlows[bcIndex]);
-        totalTemperature.push_back(computeSurfaceIntegral(surface, rhoUxTt, rhoUyTt, rhoUzTt) / _massFlows[bcIndex]);
+        FloatType mf = _massFlows[bcIndex];
+        if (std::abs(mf) < 1e-12) {
+            mf = (mf >= 0.0 ? 1e-12 : -1e-12);
+        }
+        totalPressure.push_back(computeSurfaceIntegral(surface, rhoUxPt, rhoUyPt, rhoUzPt) / mf);
+        totalTemperature.push_back(computeSurfaceIntegral(surface, rhoUxTt, rhoUyTt, rhoUzTt) / mf);
+        totalEnthalpy.push_back(computeSurfaceIntegral(surface, rhoUxHt, rhoUyHt, rhoUzHt) / mf);
+        entropy.push_back(computeSurfaceIntegral(surface, rhoUxS, rhoUyS, rhoUzS) / mf);
     }
     
-    FloatType pressureRatio = totalPressure.at(1) / totalPressure.at(0);
-    FloatType temperatureRatio = totalTemperature.at(1) / totalTemperature.at(0);
-    FloatType efficiency = _fluid->computeTotalEfficiency_PRtt_TRt(pressureRatio, temperatureRatio);
+    FloatType pressureRatio = (std::abs(totalPressure.at(0)) > 1e-12) ? totalPressure.at(1) / totalPressure.at(0) : 1.0;
+    FloatType temperatureRatio = (std::abs(totalTemperature.at(0)) > 1e-12) ? totalTemperature.at(1) / totalTemperature.at(0) : 1.0;
+
+    FloatType efficiency = 0.0;
+    if (dynamic_cast<const FluidIdeal*>(_fluid.get())) {
+        efficiency = _fluid->computeTotalEfficiency_PRtt_TRt(pressureRatio, temperatureRatio);
+    } else {
+        FloatType ht_in = totalEnthalpy.at(0);
+        FloatType s_in = entropy.at(0);
+        FloatType pt_out = totalPressure.at(1);
+        FloatType ht_out = totalEnthalpy.at(1);
+
+        FloatType ht_out_s = _fluid->computeEnthalpy_p_s(pt_out, s_in);
+        efficiency = _fluid->computeTotalEfficiency_h(ht_in, ht_out, ht_out_s);
+    }
 
     _turboPerformance[TurboPerformance::TOTAL_PRESSURE_RATIO].push_back(pressureRatio);
     _turboPerformance[TurboPerformance::TOTAL_TEMPERATURE_RATIO].push_back(temperatureRatio);
     _turboPerformance[TurboPerformance::TOTAL_EFFICIENCY].push_back(efficiency);
-    
 }
 
 void Solver::computeResiduals(
@@ -2159,7 +2212,7 @@ void Solver::checkThermodynamicBounds(const FlowSolution& solution, size_t itera
                     }
                 }
 
-                if (outOfBounds) {
+                if (outOfBounds && (violation > 0.02 || isNanOrInfCrash)) {
                     outOfBoundsCount++;
                     if (violation > maxViolation) {
                         maxViolation = violation;
@@ -2238,6 +2291,9 @@ void Solver::checkThermodynamicBounds(const FlowSolution& solution, size_t itera
             _output->writeCustomSolution("results_crashed");
         }
         writeLogResidualsToCsvFile();
+        if (_config.saveTurboOutput()) {
+            writeTurboPerformanceToCsvFile();
+        }
 
         std::cout << "\nAction Recommended:\n";
         std::cout << "  - Widen FLUID_TABLE_P_MIN / FLUID_TABLE_P_MAX or FLUID_TABLE_T_MIN / FLUID_TABLE_T_MAX in input.ini\n";

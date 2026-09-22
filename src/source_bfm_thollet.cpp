@@ -82,8 +82,17 @@ StateVector SourceBFMThollet::computeViscousComponent(
             return StateVector({0,0,0,0,0});
         }
     }
-    
-    FloatType nu = _config.getFluidKinematicViscosity();
+    FloatType nu;
+    if (_config.hasFluidKinematicViscosity()) {
+        nu = _config.getFluidKinematicViscosity();
+    } else {
+        FloatType rho = primitive[0];
+        Vector3D vel = {primitive[1], primitive[2], primitive[3]};
+        FloatType et = primitive[4];
+        FloatType e = _fluid.computeStaticEnergy_u_et(vel, et);
+        FloatType mu = _fluid.computeMolecularDynamicViscosity_rho_e(rho, e);
+        nu = (rho > 1e-12) ? (mu / rho) : 1e-5;
+    }
     FloatType stwl = _mesh.getInputFields(InputField::STREAMWISE_LENGTH, i, j, k);
 
     if (stwl < 1E-06){
