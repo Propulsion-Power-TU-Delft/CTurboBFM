@@ -75,7 +75,7 @@ protected:
 
     void initializeFromRestartFile();
     
-    void updateSolution(const Matrix3D<FloatType> &residual, const Matrix3D<FloatType> &dt);
+    void updateSolution(const FlowSolution &sol, const Matrix3D<FloatType> &residual, const Matrix3D<FloatType> &dt);
 
     FloatType getEddyThermalConductivity(const FloatType &mu, const FloatType &cp, const FloatType &Pr) const override {return mu*cp/Pr;}
 
@@ -89,7 +89,7 @@ private:
     const FloatType _cw2 = 0.3;
     const FloatType _cw3 = 2.0;
     const FloatType _cv1 = 7.1;
-    const FloatType _ct3 = 1.2; // nasa 1.2, blazek 1.3
+    const FloatType _ct3 = 0.0; // 0.0 for fully turbulent (SA-noft2 standard, NASA TMR)
     const FloatType _ct4 = 0.5;
     const FloatType _cn1 = 16.0;
     const FloatType _c2 = 0.7;
@@ -101,6 +101,9 @@ private:
     Matrix3D<FloatType> _nuLaminar;
     Matrix3D<Vector3D> _nuHatGrad;
     Matrix3D<FloatType> _fv1;
+    Matrix3D<FloatType> _deltaNuStar;
+    Matrix3D<FloatType> _deltaNu;
+    Matrix3D<FloatType> _diagD;
     FloatType _initNu;
     const FloatType _farfieldNuHatScaling = 3.0; // value used at inlet and farfields
     const FloatType _initialNuHatScaling = 0.1; // value used internally

@@ -240,18 +240,110 @@ Topology Config::getTopology() const {
 }
 
 TimeIntegration Config::getTimeIntegration() const {
-    int value = std::stoi(get("TIME_INTEGRATION_TYPE"));
-    TimeIntegration integration = TimeIntegration::RUNGE_KUTTA_4;
-    if (value == 0) {
-        integration = TimeIntegration::RUNGE_KUTTA_4;
+    std::string key = has("TIME_INTEGRATION") ? "TIME_INTEGRATION" : "TIME_INTEGRATION_TYPE";
+    if (!has(key)) {
+        return TimeIntegration::RUNGE_KUTTA_4;
+    }
+    std::string value = get(key);
+    std::string s;
+    for (char c : value) {
+        if (!std::isspace(static_cast<unsigned char>(c))) {
+            s.push_back(std::tolower(static_cast<unsigned char>(c)));
+        }
+    }
+    if (s == "0" || s == "explicit_rk4" || s == "rk4" || s == "runge_kutta_4") {
+        return TimeIntegration::RUNGE_KUTTA_4;
     } 
-    else if (value == 1) {
-        integration = TimeIntegration::RUNGE_KUTTA_3;
+    else if (s == "1" || s == "explicit_rk3" || s == "rk3" || s == "runge_kutta_3") {
+        return TimeIntegration::RUNGE_KUTTA_3;
+    }
+    else if (s == "2" || s == "implicit_lu_sgs" || s == "lu_sgs" || s == "lusgs") {
+        return TimeIntegration::IMPLICIT_LU_SGS;
+    }
+    else if (s == "3" || s == "implicit_krylov" || s == "krylov" || s == "bicgstab" ||
+             s == "implicit_gmres" || s == "gmres" || s == "implicit_fgmres" || s == "fgmres") {
+        return TimeIntegration::IMPLICIT_KRYLOV;
     }
     else {
-        throw std::runtime_error("Invalid value for key \"TIME_INTEGRATION\" in configuration.");
+        throw std::runtime_error("Invalid value for TimeIntegration: \"" + value + "\". Expected: explicit_rk4 (0), explicit_rk3 (1), implicit_lu_sgs (2), or implicit_krylov (3).");
     }
-    return integration;
+}
+
+LinearSolverType Config::getLinearSolverType() const {
+    std::string key = "";
+    if (has("LINEAR_SOLVER_TYPE")) key = "LINEAR_SOLVER_TYPE";
+    else if (has("KRYLOV_METHOD")) key = "KRYLOV_METHOD";
+    else if (has("LINEAR_SOLVER")) key = "LINEAR_SOLVER";
+
+    std::string s;
+    if (!key.empty()) {
+        std::string value = get(key);
+        for (char c : value) {
+            if (!std::isspace(static_cast<unsigned char>(c))) {
+                s.push_back(std::tolower(static_cast<unsigned char>(c)));
+            }
+        }
+    } else {
+        std::string tiKey = has("TIME_INTEGRATION") ? "TIME_INTEGRATION" : "TIME_INTEGRATION_TYPE";
+        if (has(tiKey)) {
+            std::string value = get(tiKey);
+            for (char c : value) {
+                if (!std::isspace(static_cast<unsigned char>(c))) {
+                    s.push_back(std::tolower(static_cast<unsigned char>(c)));
+                }
+            }
+        }
+    }
+
+    if (s == "gmres" || s == "implicit_gmres") {
+        return LinearSolverType::GMRES;
+    } else if (s == "fgmres" || s == "implicit_fgmres" || s == "fgmres_lusgs") {
+        return LinearSolverType::FGMRES;
+    } else {
+        return LinearSolverType::BICGSTAB;
+    }
+}
+
+LinearPreconditionerType Config::getLinearPreconditionerType() const {
+    std::string key = "";
+    if (has("LINEAR_SOLVER_PRECONDITIONER")) key = "LINEAR_SOLVER_PRECONDITIONER";
+    else if (has("PRECONDITIONER")) key = "PRECONDITIONER";
+    else if (has("LINEAR_PRECONDITIONER")) key = "LINEAR_PRECONDITIONER";
+
+    if (!key.empty()) {
+        std::string value = get(key);
+        std::string s;
+        for (char c : value) {
+            if (!std::isspace(static_cast<unsigned char>(c))) {
+                s.push_back(std::tolower(static_cast<unsigned char>(c)));
+            }
+        }
+        if (s == "lu_sgs" || s == "lusgs") {
+            return LinearPreconditionerType::LU_SGS;
+        } else if (s == "diagonal" || s == "jacobi") {
+            return LinearPreconditionerType::DIAGONAL;
+        } else if (s == "none" || s == "identity") {
+            return LinearPreconditionerType::NONE;
+        } else {
+            throw std::runtime_error("Invalid value for preconditioner: \"" + value + "\". Expected: lu_sgs, diagonal, or none.");
+        }
+    }
+
+    // Default: for FGMRES default to LU_SGS, for GMRES/BiCGSTAB default to DIAGONAL
+    if (getLinearSolverType() == LinearSolverType::FGMRES) {
+        return LinearPreconditionerType::LU_SGS;
+    }
+    return LinearPreconditionerType::DIAGONAL;
+}
+
+size_t Config::getKrylovRestart() const {
+    if (has("KRYLOV_RESTART")) {
+        return static_cast<size_t>(parseInt("KRYLOV_RESTART"));
+    }
+    if (has("GMRES_RESTART")) {
+        return static_cast<size_t>(parseInt("GMRES_RESTART"));
+    }
+    return 20;
 }
 
 TimeStepMethod Config::getTimeStepMethod() const {
@@ -314,7 +406,7 @@ std::vector<FloatType> Config::getTimeIntegrationCoeffs() const {
         return {8.0/17.0, 17.0/20.0, 1.0};
     }
     else {
-        throw std::runtime_error("Invalid value for key \"TIME_INTEGRATION\" in configuration.");
+        return {1.0};
     }
 }
 

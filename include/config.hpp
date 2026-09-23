@@ -148,7 +148,16 @@ public:
 
     bool isGongFormulationActive() const {return parseBool("GONG_MODELING_ACTIVE", false);}
     
-    FloatType getCFL() const {return parseFloat("CFL");}
+    FloatType getCFL() const {
+        if (has("CFL")) {
+            return parseFloat("CFL");
+        } else if (has("CFL_START")) {
+            return parseFloat("CFL_START");
+        } else if (has("CFL_MAX")) {
+            return parseFloat("CFL_MAX");
+        }
+        return parseFloat("CFL");
+    }
 
     long unsigned int getMaxIterations() const {return static_cast<long unsigned int>(parseFloat("N_ITERATIONS"));}
 
@@ -193,6 +202,27 @@ public:
     size_t getLeadingEdgeIndex() const {return static_cast<size_t>(parseInt("LEADING_EDGE_INDEX"));}
 
     TimeIntegration getTimeIntegration() const;
+
+    bool isTimeIntegrationImplicit() const {
+        TimeIntegration ti = getTimeIntegration();
+        return (ti == TimeIntegration::IMPLICIT_LU_SGS || ti == TimeIntegration::IMPLICIT_KRYLOV);
+    }
+
+    FloatType getCFLStart() const {
+        if (has("CFL_START")) return parseFloat("CFL_START");
+        return getCFL();
+    }
+    FloatType getCFLMax() const {
+        if (has("CFL_MAX")) return parseFloat("CFL_MAX");
+        return getCFL();
+    }
+    size_t getCFLRampIterations() const { return static_cast<size_t>(parseInt("CFL_RAMP_ITERATIONS", 0)); }
+    FloatType getImplicitUnderRelaxation() const { return parseFloat("IMPLICIT_UNDER_RELAXATION", 1.0); }
+    FloatType getLinearSolverTol() const { return parseFloat("LINEAR_SOLVER_TOL", 1e-2); }
+    size_t getLinearSolverMaxIter() const { return static_cast<size_t>(parseInt("LINEAR_SOLVER_MAX_ITER", 20)); }
+    LinearSolverType getLinearSolverType() const;
+    LinearPreconditionerType getLinearPreconditionerType() const;
+    size_t getKrylovRestart() const;
 
     TimeStepMethod getTimeStepMethod() const;
 

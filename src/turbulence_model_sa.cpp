@@ -24,6 +24,9 @@ void TurbulenceModelSA::setupModelEquations() {
     _nuHatGrad.resize(_ni, _nj, _nk);
     _nuLaminar.resize(_ni, _nj, _nk);
     _fv1.resize(_ni, _nj, _nk);
+    _deltaNuStar.resize(_ni, _nj, _nk);
+    _deltaNu.resize(_ni, _nj, _nk);
+    _diagD.resize(_ni, _nj, _nk);
 }
 
 void TurbulenceModelSA::setupInitialValues() {
@@ -352,7 +355,9 @@ void TurbulenceModelSA::solve(
     
     computeSourceTerms(residual, sol, solGrad);
     
-    updateSolution(residual, dt);
+    updateSolution(sol, residual, dt);
+
+    updateBoundaryValues(sol);
 }
 
 void TurbulenceModelSA::updateSolutionGradient() {
@@ -638,9 +643,196 @@ FloatType TurbulenceModelSA::computeSource(
     }
 }
 
-void TurbulenceModelSA::updateSolution(const Matrix3D<FloatType> &residual, const Matrix3D<FloatType> &dt){
-    Matrix3D<FloatType> volume = _mesh.getVolumes();
-    _nuHat -= residual * dt / volume;
+void TurbulenceModelSA::updateSolution(
+    const FlowSolution &sol, 
+    const Matrix3D<FloatType> &residual, 
+    const Matrix3D<FloatType> &dt) {
+
+    const auto& surfacesI = _mesh.getSurfacesI();
+    const auto& surfacesJ = _mesh.getSurfacesJ();
+    const auto& surfacesK = _mesh.getSurfacesK();
+    const auto& volumes = _mesh.getVolumes();
+
+    const bool is1D = (_topology == Topology::ONE_DIMENSIONAL);
+    const bool is3D = (_topology == Topology::THREE_DIMENSIONAL);
+
+    // Extract velocity field
+    Matrix3D<Vector3D> vel(_ni, _nj, _nk);
+    #pragma omp parallel for collapse(2) schedule(static) if(_ni * _nj >= 64)
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+                StateVector cons = sol.at(i, j, k);
+                FloatType invRho = 1.0 / cons[0];
+                vel(i, j, k) = Vector3D(cons[1] * invRho, cons[2] * invRho, cons[3] * invRho);
+            }
+        }
+    }
+
+    // Step 1: Compute Diagonal Operator D(i, j, k)
+    #pragma omp parallel for collapse(2) schedule(static) if(_ni * _nj >= 64)
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+                const Vector3D& v = vel(i, j, k);
+                FloatType vol = volumes(i, j, k);
+                FloatType dtLocal = dt(i, j, k);
+                FloatType nuHat = _nuHat(i, j, k);
+
+                // Convective spectral radius across faces
+                FloatType lamW = std::abs(v.dot(surfacesI(i, j, k)));
+                FloatType lamE = std::abs(v.dot(surfacesI(i + 1, j, k)));
+
+                FloatType lamS = 0.0, lamN = 0.0;
+                if (!is1D) {
+                    lamS = std::abs(v.dot(surfacesJ(i, j, k)));
+                    lamN = std::abs(v.dot(surfacesJ(i, j + 1, k)));
+                }
+
+                FloatType lamB = 0.0, lamT = 0.0;
+                if (is3D) {
+                    lamB = std::abs(v.dot(surfacesK(i, j, k)));
+                    lamT = std::abs(v.dot(surfacesK(i, j, k + 1)));
+                }
+
+                FloatType sigmaC = 0.5 * (lamW + lamE + lamS + lamN + lamB + lamT);
+
+                // Viscous diffusion spectral radius
+                FloatType nuLam = _nuLaminar(i, j, k);
+                FloatType nuDiff = (nuLam + std::max(static_cast<FloatType>(0.0), nuHat)) / _sigma;
+                FloatType sTotSq = surfacesI(i, j, k).magnitudeSquared() + surfacesI(i + 1, j, k).magnitudeSquared();
+                if (!is1D) {
+                    sTotSq += surfacesJ(i, j, k).magnitudeSquared() + surfacesJ(i, j + 1, k).magnitudeSquared();
+                }
+                if (is3D) {
+                    sTotSq += surfacesK(i, j, k).magnitudeSquared() + surfacesK(i, j, k + 1).magnitudeSquared();
+                }
+                FloatType sigmaV = (nuDiff / vol) * sTotSq;
+
+                // Destruction Jacobian contribution
+                FloatType d = _wallDistance(i, j, k);
+                FloatType dSq = std::max(d * d, static_cast<FloatType>(1e-16));
+                FloatType sigmaD = 0.0;
+                if (nuHat > 0.0) {
+                    sigmaD = vol * (2.0 * _cw1 * nuHat / dSq);
+                }
+
+                _diagD(i, j, k) = (vol / dtLocal) + sigmaC + sigmaV + sigmaD;
+            }
+        }
+    }
+
+    _deltaNuStar.setToZero();
+    _deltaNu.setToZero();
+
+    // Step 2: Forward Sweep (order: i increasing, j increasing, k increasing)
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+                FloatType rhs = -residual(i, j, k);
+
+                // Lower neighbor in I: cell (i-1, j, k) across face (i, j, k)
+                if (i > 0) {
+                    const Vector3D& S = surfacesI(i, j, k);
+                    FloatType Vn = vel(i - 1, j, k).dot(S);
+                    FloatType lam = std::abs(Vn);
+                    rhs += 0.5 * (Vn + lam) * _deltaNuStar(i - 1, j, k);
+                }
+
+                // Lower neighbor in J: cell (i, j-1, k) across face (i, j, k)
+                if (!is1D && j > 0) {
+                    const Vector3D& S = surfacesJ(i, j, k);
+                    FloatType Vn = vel(i, j - 1, k).dot(S);
+                    FloatType lam = std::abs(Vn);
+                    rhs += 0.5 * (Vn + lam) * _deltaNuStar(i, j - 1, k);
+                }
+
+                // Lower neighbor in K: cell (i, j, k-1) across face (i, j, k)
+                if (is3D && k > 0) {
+                    const Vector3D& S = surfacesK(i, j, k);
+                    FloatType Vn = vel(i, j, k - 1).dot(S);
+                    FloatType lam = std::abs(Vn);
+                    rhs += 0.5 * (Vn + lam) * _deltaNuStar(i, j, k - 1);
+                }
+
+                _deltaNuStar(i, j, k) = rhs / _diagD(i, j, k);
+            }
+        }
+    }
+
+    // Step 3: Backward Sweep (order: i decreasing, j decreasing, k decreasing)
+    for (size_t i = _ni; i-- > 0; ) {
+        for (size_t j = _nj; j-- > 0; ) {
+            for (size_t k = _nk; k-- > 0; ) {
+                FloatType sum = 0.0;
+
+                // Upper neighbor in I: cell (i+1, j, k) across face (i+1, j, k)
+                if (i + 1 < _ni) {
+                    const Vector3D& S = surfacesI(i + 1, j, k);
+                    FloatType Vn = vel(i + 1, j, k).dot(S);
+                    FloatType lam = std::abs(Vn);
+                    sum += 0.5 * (lam - Vn) * _deltaNu(i + 1, j, k);
+                }
+
+                // Upper neighbor in J: cell (i, j+1, k) across face (i, j+1, k)
+                if (!is1D && j + 1 < _nj) {
+                    const Vector3D& S = surfacesJ(i, j + 1, k);
+                    FloatType Vn = vel(i, j + 1, k).dot(S);
+                    FloatType lam = std::abs(Vn);
+                    sum += 0.5 * (lam - Vn) * _deltaNu(i, j + 1, k);
+                }
+
+                // Upper neighbor in K: cell (i, j, k+1) across face (i, j, k+1)
+                if (is3D && k + 1 < _nk) {
+                    const Vector3D& S = surfacesK(i, j, k + 1);
+                    FloatType Vn = vel(i, j, k + 1).dot(S);
+                    FloatType lam = std::abs(Vn);
+                    sum += 0.5 * (lam - Vn) * _deltaNu(i, j, k + 1);
+                }
+
+                _deltaNu(i, j, k) = _deltaNuStar(i, j, k) + sum / _diagD(i, j, k);
+            }
+        }
+    }
+
+    // Step 4: Solution Update and Positivity Preservation
+    FloatType underRelaxation = _config.getImplicitUnderRelaxation();
+    bool diverged = false;
+    size_t divI = 0, divJ = 0, divK = 0;
+
+    for (size_t i = 0; i < _ni; ++i) {
+        for (size_t j = 0; j < _nj; ++j) {
+            for (size_t k = 0; k < _nk; ++k) {
+                FloatType dNu = _deltaNu(i, j, k) * underRelaxation;
+
+                if (std::isnan(dNu) || std::isinf(dNu)) {
+                    diverged = true;
+                    divI = i; divJ = j; divK = k;
+                }
+
+                FloatType nuHat = _nuHat(i, j, k);
+
+                // Limiting turbulence quenching during large transients:
+                if (dNu < -0.8 * nuHat && nuHat > 1e-10) {
+                    dNu = -0.8 * nuHat;
+                }
+
+                FloatType newNuHat = nuHat + dNu;
+
+                // Clipping and positivity preservation:
+                FloatType nuLam = _nuLaminar(i, j, k);
+                FloatType maxNuHat = 1.0e5 * std::max(nuLam, static_cast<FloatType>(1e-12));
+                newNuHat = std::max(static_cast<FloatType>(0.0), std::min(newNuHat, maxNuHat));
+
+                _nuHat(i, j, k) = newNuHat;
+            }
+        }
+    }
+
+    if (diverged) {
+        throw std::runtime_error("Turbulence model diverged: NaN or Inf detected in nuHat update at (" +
+                                 std::to_string(divI) + ", " + std::to_string(divJ) + ", " + std::to_string(divK) + ").");
+    }
 }
 
 FloatType TurbulenceModelSA::getEddyViscosity(const FloatType &density, size_t i, size_t j, size_t k) const {

@@ -12,11 +12,13 @@ PROFILE_INCLUDE_PATH := /opt/homebrew/opt/gperftools/include
 OMP_LIB_PATH := /opt/homebrew/opt/libomp/lib
 OMP_INCLUDE_PATH := /opt/homebrew/opt/libomp/include
 
+EIGEN_INCLUDE_PATH := /opt/homebrew/opt/eigen/include/eigen3
+
 # ==========================================================
 # Compiler and flags
 # ==========================================================
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH) -O3 -DNDEBUG -march=native -flto
+CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH) -I$(EIGEN_INCLUDE_PATH) -O3 -DNDEBUG -march=native -flto -MMD -MP
 
 LDFLAGS  := -L$(OMP_LIB_PATH) -lomp -flto
 
@@ -54,7 +56,7 @@ GRAD_TARGET := $(BIN_DIR)/turbobfm_grad
 # ==========================================================
 all: $(MAIN_TARGET)
 
-debug: CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH) $(DEBUG_FLAGS)
+debug: CXXFLAGS := -std=c++20 -Wall -I$(INC_DIR) -I$(SRC_DIR) -Xclang -fopenmp -I$(OMP_INCLUDE_PATH) -I$(EIGEN_INCLUDE_PATH) $(DEBUG_FLAGS)
 debug: LDFLAGS := -L$(OMP_LIB_PATH) -lomp
 debug: $(MAIN_TARGET)
 
@@ -83,6 +85,8 @@ $(GRAD_TARGET): $(GRAD_OBJECTS)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+-include $(wildcard $(OBJ_DIR)/*.d)
 
 # ==========================================================
 # Utility rules

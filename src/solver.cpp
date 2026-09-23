@@ -26,6 +26,7 @@ Solver::Solver(Config& config, Mesh& mesh)
     buildBfmInfo();
     initializeSolutionArrays();
     buildTurbulenceModel();
+    buildImplicitSolver();
     buildOutputStructure();
 }
 
@@ -193,6 +194,30 @@ void Solver::buildAdvectionModel() {
         break;
     default:
         throw std::runtime_error("Unsupported convection scheme selected.");
+    }
+}
+
+void Solver::buildImplicitSolver() {
+    TimeIntegration ti = _config.getTimeIntegration();
+    if (ti == TimeIntegration::IMPLICIT_LU_SGS) {
+        _isImplicitActive = true;
+        _implicitSolver = std::make_unique<ImplicitSolverLUSGS>(_config, _mesh, *_fluid, _turbulenceModel.get());
+        std::cout << "Time Integration: Implicit LU-SGS (Lower-Upper Symmetric Gauss-Seidel)\n";
+    }
+    else if (ti == TimeIntegration::IMPLICIT_KRYLOV) {
+        _isImplicitActive = true;
+        _implicitSolver = std::make_unique<ImplicitSolverKrylov>(_config, _mesh, *_fluid, _turbulenceModel.get());
+        LinearSolverType lst = _config.getLinearSolverType();
+        if (lst == LinearSolverType::GMRES) {
+            std::cout << "Time Integration: Implicit Krylov Subspace (GMRES(" << _config.getKrylovRestart() << ") via Eigen)\n";
+        } else if (lst == LinearSolverType::FGMRES) {
+            std::cout << "Time Integration: Implicit Krylov Subspace (FGMRES(" << _config.getKrylovRestart() << ") with LU-SGS Preconditioner)\n";
+        } else {
+            std::cout << "Time Integration: Implicit Krylov Subspace (BiCGSTAB via Eigen)\n";
+        }
+    }
+    else {
+        _isImplicitActive = false;
     }
 }
 
@@ -1164,7 +1189,11 @@ void Solver::readRestartFile(
         std::string value;
         std::vector<FloatType> row;
         while (std::getline(ss, value, ',')) {
-            row.push_back(std::stod(value));
+            FloatType val = std::stod(value);
+            if (std::isnan(val) || std::isinf(val)) {
+                throw std::runtime_error("Corrupted restart file '" + restartFileName + "': NaN or Inf encountered at row index (" + std::to_string(i) + "," + std::to_string(j) + "," + std::to_string(k) + ").");
+            }
+            row.push_back(val);
         }
 
         // Store coordinates if available
@@ -1222,6 +1251,17 @@ void Solver::solve(){
     bool steadySimulation = _config.isSimulationSteady();                                   
     if (monitorPointsActive) initializeMonitorPoints();                                     
 
+    bool needTurboPerformance = turboOutput || _isGreitzerModelingActive;
+    for (const auto& bc : _boundaries) {
+        if (bc.type == BoundaryType::THROTTLE) {
+            needTurboPerformance = true;
+            break;
+        }
+    }
+    if (_config.isBFMActive() && _config.getBFMModel() == BodyForceModel::CHIMA) {
+        needTurboPerformance = true;
+    }
+
     // place holder for the solution
     preprocessSolution(_conservativeSolution, false);
     if (_stopOnTableOutOfBounds) {
@@ -1229,29 +1269,58 @@ void Solver::solve(){
     }
     FlowSolution solutionTmp(_conservativeSolution);                              
     std::map<SolutionName, Matrix3D<Vector3D>> solutionGradTmp = _solutionGrad;               
+    FlowSolution deltaU(_nPointsI, _nPointsJ, _nPointsK);
+    FloatType underRelaxation = _config.getImplicitUnderRelaxation();
+    FloatType cflStart = _config.getCFLStart();
+    FloatType cflMaxTarget = _config.getCFLMax();
+    size_t cflRampIter = _config.getCFLRampIterations();
     
-    // explict time-stepping
+    // time-stepping loop
     for (size_t it=1; it<=nIterMax; it++){        
         updateMassFlows(solutionTmp);
         
-        if (turboOutput) updateTurboPerformance(solutionTmp);                               
+        if (needTurboPerformance) updateTurboPerformance(solutionTmp);                               
         if (monitorPointsActive) updateMonitorPoints(solutionTmp);                          
 
         computeTimestepArray(solutionTmp, timestep);                                        
         
-        // runge-kutta steps
-        preprocessSolution(solutionTmp);
-        computeSolutionGradient(solutionTmp, solutionGradTmp);
-        updateTurbulenceSolution(solutionTmp, solutionGradTmp, 1.0, timestep);
-        for (const auto &integrationCoeff: timeIntegrationCoeffs){
+        if (_isImplicitActive) {
+            FloatType currentCFL = _config.getCFL();
+            if (cflRampIter > 0) {
+                FloatType frac = std::min(static_cast<FloatType>(1.0), static_cast<FloatType>(it) / static_cast<FloatType>(cflRampIter));
+                currentCFL = cflStart + frac * (cflMaxTarget - cflStart);
+            } else if (_config.has("CFL_START")) {
+                currentCFL = cflStart;
+            }
+            FloatType baseCFL = _config.getCFL();
+            if (baseCFL > 0.0 && currentCFL != baseCFL) {
+                timestep *= (currentCFL / baseCFL);
+            }
+
+            preprocessSolution(solutionTmp);
             computeSolutionGradient(solutionTmp, solutionGradTmp);
+            updateTurbulenceSolution(solutionTmp, solutionGradTmp, 1.0, timestep);
             computeResiduals(solutionTmp, solutionGradTmp, it, _currentTime, timestep, residuals);
-            updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
+            _implicitSolver->solveCorrection(solutionTmp, residuals, timestep, deltaU);
+            updateSolutionImplicit(solutionTmp, deltaU, underRelaxation);
             enforcePeriodicityOnSolution(solutionTmp);
+        }
+        else {
+            // runge-kutta steps
+            preprocessSolution(solutionTmp);
+            computeSolutionGradient(solutionTmp, solutionGradTmp);
+            updateTurbulenceSolution(solutionTmp, solutionGradTmp, 1.0, timestep);
+            for (const auto &integrationCoeff: timeIntegrationCoeffs){
+                computeSolutionGradient(solutionTmp, solutionGradTmp);
+                computeResiduals(solutionTmp, solutionGradTmp, it, _currentTime, timestep, residuals);
+                updateSolution(_conservativeSolution, solutionTmp, residuals, integrationCoeff, timestep);   
+                enforcePeriodicityOnSolution(solutionTmp);
+            }
         }
 
         // update the solution and prepare for next iteration
         _conservativeSolution = solutionTmp;
+        _solutionGrad = solutionGradTmp;
         
         // check thermodynamic bounds if requested
         if (_stopOnTableOutOfBounds) {
@@ -1304,6 +1373,10 @@ void Solver::printInfoResiduals(FlowSolution &residuals, size_t it) {
     if (!_hasInitialLogResiduals) {
         _initialLogResiduals = logRes;
         _hasInitialLogResiduals = true;
+    } else if (it <= 5) {
+        for (size_t v = 0; v < 5; ++v) {
+            _initialLogResiduals[v] = std::max(_initialLogResiduals[v], logRes[v]);
+        }
     }
 }
 
@@ -1360,10 +1433,23 @@ StateVector Solver::computeLogResidualNorm(const FlowSolution &residuals) const 
 
     for (int i = 0; i < 5; i++) {
         auto residualNorm = residuals.norm(i);
+        if (std::isnan(residualNorm) || std::isinf(residualNorm)) {
+            throw std::runtime_error("Solver diverged: NaN or Inf detected in residual variable " + std::to_string(i));
+        }
         if (residualNorm >= minDouble) {
             logResidualNorm[i] = std::log10(residualNorm / (_nPointsI * _nPointsJ * _nPointsK));
         } else {
             logResidualNorm[i] = -16.0;
+        }
+
+        bool isDimActive = true;
+        if (i == 3 && _topology != Topology::THREE_DIMENSIONAL) {
+            isDimActive = false;
+        } else if (i == 2 && _topology == Topology::ONE_DIMENSIONAL) {
+            isDimActive = false;
+        }
+        if (isDimActive && logResidualNorm[i] <= -15.99) {
+            throw std::runtime_error("Solver diverged: Residual dropped to -16.00 in variable " + std::to_string(i) + " (numerical breakdown detected).");
         }
     }
     return logResidualNorm;
@@ -2097,6 +2183,62 @@ void Solver::updateSolution(
     }
 }
 
+void Solver::updateSolutionImplicit(
+    FlowSolution &sol, 
+    const FlowSolution &deltaU, 
+    FloatType underRelaxation) {
+
+    const size_t totalCells = _nPointsI * _nPointsJ * _nPointsK;
+    bool diverged = false;
+
+    #pragma omp parallel for schedule(static) if(totalCells >= 64)
+    for (size_t idx = 0; idx < totalCells; ++idx) {
+        StateVector U = sol.at(idx);
+        StateVector dU = deltaU.at(idx) * underRelaxation;
+
+        for (int v = 0; v < 5; ++v) {
+            if (std::isnan(dU[v]) || std::isinf(dU[v])) {
+                #pragma omp atomic write
+                diverged = true;
+            }
+        }
+
+        // Physical admissibility check on density
+        if (U[0] + dU[0] <= 0.1 * U[0]) {
+            FloatType scale = (0.9 * U[0]) / (std::abs(dU[0]) + 1e-15);
+            dU = dU * scale;
+        }
+
+        // Physical admissibility check on internal energy (temperature)
+        FloatType rho_old = U[0];
+        FloatType rhoE_old = U[4] - 0.5 * (U[1]*U[1] + U[2]*U[2] + U[3]*U[3]) / rho_old;
+
+        FloatType rho_new = U[0] + dU[0];
+        FloatType rhoE_new = (U[4] + dU[4]) - 0.5 * ((U[1]+dU[1])*(U[1]+dU[1]) + (U[2]+dU[2])*(U[2]+dU[2]) + (U[3]+dU[3])*(U[3]+dU[3])) / rho_new;
+
+        if (rhoE_new <= 0.1 * rhoE_old) {
+            for (int s = 0; s < 5; ++s) {
+                dU = dU * 0.5;
+                rho_new = U[0] + dU[0];
+                rhoE_new = (U[4] + dU[4]) - 0.5 * ((U[1]+dU[1])*(U[1]+dU[1]) + (U[2]+dU[2])*(U[2]+dU[2]) + (U[3]+dU[3])*(U[3]+dU[3])) / rho_new;
+                if (rhoE_new > 0.1 * rhoE_old) break;
+            }
+        }
+
+        // Physical admissibility check on total energy
+        if (U[4] + dU[4] <= 0.1 * U[4]) {
+            FloatType scale = (0.9 * U[4]) / (std::abs(dU[4]) + 1e-15);
+            dU = dU * scale;
+        }
+
+        sol.set(idx, U + dU);
+    }
+
+    if (diverged) {
+        throw std::runtime_error("Solver diverged: NaN or Inf detected in implicit correction deltaU.");
+    }
+}
+
 
 void Solver::enforcePeriodicityOnSolution(FlowSolution &solNew){
     if (!_mesh.isPeriodicityActive()) return;
@@ -2481,6 +2623,10 @@ void Solver::writeMonitorPointsToCsvFile() {
 void Solver::updateRadialProfiles(FlowSolution &solution){
     StateVector conservative, primitive;
     Vector3D velocityCart, velocityCyl;
+    if (_turboPerformance[TurboPerformance::MASS_FLOW].empty()){
+        updateMassFlows(solution);
+        updateTurboPerformance(solution);
+    }
     if (_isGreitzerModelingActive){
         FloatType mflow = _turboPerformance[TurboPerformance::MASS_FLOW].back();
         _hubStaticPressure = _greitzerModel->computePlenumPressure(mflow);
@@ -2735,11 +2881,24 @@ void Solver::checkConvergence(bool &exitLoop, bool &isSteady, size_t it) const {
 
     StateVector current = _logResiduals.back();
 
-    if (current[0] < _initialLogResiduals[0] - _residualsDropConvergence &&
-        current[1] < _initialLogResiduals[1] - _residualsDropConvergence &&
-        current[2] < _initialLogResiduals[2] - _residualsDropConvergence &&
-        current[3] < _initialLogResiduals[3] - _residualsDropConvergence &&
-        current[4] < _initialLogResiduals[4] - _residualsDropConvergence) {
+    bool converged = true;
+    for (size_t v = 0; v < 5; ++v) {
+        if (v == 3 && _topology != Topology::THREE_DIMENSIONAL && _topology != Topology::AXISYMMETRIC) {
+            continue;
+        }
+        if (v == 2 && _topology == Topology::ONE_DIMENSIONAL) {
+            continue;
+        }
+        if (_initialLogResiduals[v] <= -15.99) {
+            continue;
+        }
+        if (current[v] >= _initialLogResiduals[v] - _residualsDropConvergence) {
+            converged = false;
+            break;
+        }
+    }
+
+    if (converged) {
         std::cout << "\nConvergence reached at iteration " << it << std::endl;
         std::cout << std::endl;
         exitLoop = true;

@@ -97,6 +97,10 @@ class Vector3D {
             return std::sqrt(x()*x() + y()*y() + z()*z());
         }
 
+        FloatType magnitudeSquared() const {
+            return x()*x() + y()*y() + z()*z();
+        }
+
         Vector3D normalized() const {
             FloatType mag = magnitude();
             return (mag == 0) ? Vector3D(0, 0, 0) : *this / mag;
@@ -227,8 +231,22 @@ struct Index {
 };
 
 enum class TimeIntegration {
-    RUNGE_KUTTA_4,
-    RUNGE_KUTTA_3
+    RUNGE_KUTTA_4 = 0,
+    RUNGE_KUTTA_3 = 1,
+    IMPLICIT_LU_SGS = 2,
+    IMPLICIT_KRYLOV = 3
+};
+
+enum class LinearSolverType {
+    BICGSTAB = 0,
+    GMRES = 1,
+    FGMRES = 2
+};
+
+enum class LinearPreconditionerType {
+    DIAGONAL = 0,
+    LU_SGS = 1,
+    NONE = 2
 };
 
 
@@ -649,6 +667,13 @@ class StateVector {
             StateVector result;
             for (std::size_t i = 0; i < Size; ++i)
                 result[i] = _data[i] - other[i];
+            return result;
+        }
+
+        StateVector operator-() const {
+            StateVector result;
+            for (std::size_t i = 0; i < Size; ++i)
+                result[i] = -_data[i];
             return result;
         }
     

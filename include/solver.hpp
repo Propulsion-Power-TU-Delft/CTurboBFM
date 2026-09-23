@@ -30,6 +30,9 @@
 #include "boundary_outlet_throttle.hpp"
 #include "boundary_transparent.hpp"
 #include "boundary_farfield.hpp"
+#include "implicit_solver_base.hpp"
+#include "implicit_solver_lusgs.hpp"
+#include "implicit_solver_krylov.hpp"
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -88,6 +91,7 @@ private:
     void generateFluidTable(const std::string& tableFile);
 
     void buildAdvectionModel();
+    void buildImplicitSolver();
 
     void readBoundaryFile();
 
@@ -160,6 +164,11 @@ private:
         const FlowSolution &residuals, 
         const FloatType &integrationCoeff, 
         const Matrix3D<FloatType> &dt);
+
+    void updateSolutionImplicit(
+        FlowSolution &sol, 
+        const FlowSolution &deltaU, 
+        FloatType underRelaxation);
 
     void enforcePeriodicityOnSolution(FlowSolution &sol);
 
@@ -318,6 +327,9 @@ private:
     FluidModel _fluidModel = FluidModel::IDEAL;
     
     std::unique_ptr<AdvectionBase> _advection;
+    
+    bool _isImplicitActive{false};
+    std::unique_ptr<ImplicitSolverBase> _implicitSolver;
     
     std::vector<std::shared_ptr<BoundaryBase>> _boundaryConditions;
     Matrix3D<std::shared_ptr<BoundaryBase>> _boundaryConditionsMapI;

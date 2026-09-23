@@ -89,7 +89,7 @@ def compare_results_with_reference(case_dir):
         print(f"{key} matches with relative error {err:.9f}")
 
 
-@pytest.mark.parametrize("case_dir", discover_cases())
+@pytest.mark.parametrize("case_dir", discover_cases(), ids=lambda p: p.name)
 def test_run_case(case_dir):
     print(f"\n=== Running test in {case_dir.name} ===")
 
