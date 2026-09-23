@@ -16,7 +16,9 @@ def read_residuals(input_filename):
 
 
 def shift_to_zero(res):
-    return res - res[0]
+    res = res[1:]
+    shifted = res - res[0]
+    return shifted
 
 
 def get_math_label(str_label):
