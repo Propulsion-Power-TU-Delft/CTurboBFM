@@ -35,6 +35,21 @@ void TurbulenceModelSA::setupInitialValues() {
     FloatType initDensity = _fluid.computeDensity_p_T(initPressure, initTemperature);
     _initNu = _fluid.computeMolecularDynamicViscosity(initTemperature) / initDensity;
 
+    if (_config.hasTurbulenceNuTildeRatio()) {
+        _farfieldNuHatScaling = _config.getTurbulenceNuTildeRatio();
+    } else if (_config.hasTurbulenceEddyViscosityRatio()) {
+        FloatType mutRatio = _config.getTurbulenceEddyViscosityRatio();
+        _farfieldNuHatScaling = reconstructNuTildeFromEddyViscosity(mutRatio, 1.0, 1.0, _cv1);
+    } else {
+        _farfieldNuHatScaling = 3.0;
+    }
+
+    if (_config.hasTurbulenceInitNuTildeRatio()) {
+        _initialNuHatScaling = _config.getTurbulenceInitNuTildeRatio();
+    } else {
+        _initialNuHatScaling = _farfieldNuHatScaling;
+    }
+
     if (_config.restartSolution()) {
         initializeFromRestartFile();
     }
@@ -250,6 +265,7 @@ void TurbulenceModelSA::updateBoundaryValues(const FlowSolution &sol) {
         else if (boundary.type == BoundaryType::OUTLET || 
             boundary.type == BoundaryType::RADIAL_EQUILIBRIUM || 
             boundary.type == BoundaryType::THROTTLE ||
+            boundary.type == BoundaryType::MASS_FLOW ||
             boundary.type == BoundaryType::OUTLET_SUPERSONIC ||
             boundary.type == BoundaryType::INVISCID_WALL ||
             boundary.type == BoundaryType::TRANSPARENT){ 
@@ -522,7 +538,6 @@ FloatType TurbulenceModelSA::computeViscousFlux(
         FloatType fn = (_cn1 + chi3) / (_cn1 - chi3);
         nuTotal_left = nuL_left + nuHat_left * fn;
     }
-    Vector3D tauLeft = (_nuHatGrad(idxLeft[0], idxLeft[1], idxLeft[2]) / _sigma) * nuTotal_left;
 
     // Right state
     FloatType nuL_right = _nuLaminar(idxRight[0], idxRight[1], idxRight[2]);
@@ -536,6 +551,8 @@ FloatType TurbulenceModelSA::computeViscousFlux(
         FloatType fn = (_cn1 + chi3) / (_cn1 - chi3);
         nuTotal_right = nuL_right + nuHat_right * fn;
     }
+
+    Vector3D tauLeft = (_nuHatGrad(idxLeft[0], idxLeft[1], idxLeft[2]) / _sigma) * nuTotal_left;
     Vector3D tauRight = (_nuHatGrad(idxRight[0], idxRight[1], idxRight[2]) / _sigma) * nuTotal_right;
 
     FloatType flux = 0.5 * (tauLeft + tauRight).dot(n);
@@ -709,13 +726,10 @@ void TurbulenceModelSA::updateSolution(
                 }
                 FloatType sigmaV = (nuDiff / vol) * sTotSq;
 
-                // Destruction Jacobian contribution
+                // Destruction Jacobian contribution (positive diagonal damping for both positive and negative SA)
                 FloatType d = _wallDistance(i, j, k);
                 FloatType dSq = std::max(d * d, static_cast<FloatType>(1e-16));
-                FloatType sigmaD = 0.0;
-                if (nuHat > 0.0) {
-                    sigmaD = vol * (2.0 * _cw1 * nuHat / dSq);
-                }
+                FloatType sigmaD = vol * (2.0 * _cw1 * std::abs(nuHat) / dSq);
 
                 _diagD(i, j, k) = (vol / dtLocal) + sigmaC + sigmaV + sigmaD;
             }
@@ -811,18 +825,13 @@ void TurbulenceModelSA::updateSolution(
                 }
 
                 FloatType nuHat = _nuHat(i, j, k);
-
-                // Limiting turbulence quenching during large transients:
-                if (dNu < -0.8 * nuHat && nuHat > 1e-10) {
-                    dNu = -0.8 * nuHat;
-                }
-
                 FloatType newNuHat = nuHat + dNu;
 
-                // Clipping and positivity preservation:
+                // Bounds to avoid arithmetic overflow while allowing negative values for SA-neg:
                 FloatType nuLam = _nuLaminar(i, j, k);
                 FloatType maxNuHat = 1.0e5 * std::max(nuLam, static_cast<FloatType>(1e-12));
-                newNuHat = std::max(static_cast<FloatType>(0.0), std::min(newNuHat, maxNuHat));
+                FloatType minNuHat = -maxNuHat;
+                newNuHat = std::max(minNuHat, std::min(newNuHat, maxNuHat));
 
                 _nuHat(i, j, k) = newNuHat;
             }

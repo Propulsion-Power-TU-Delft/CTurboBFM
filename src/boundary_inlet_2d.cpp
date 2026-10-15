@@ -31,6 +31,14 @@ StateVector BoundaryInlet2D::computeBoundaryFlux(
             const FlowSolution& flowSolution, 
             const size_t& iterCounter) {
     
+    FloatType totalPressure = _inputGrid.getField(InputField::TOTAL_PRESSURE, indices[0], indices[1], indices[2]);
+    FloatType totalTemperature = _inputGrid.getField(InputField::TOTAL_TEMPERATURE, indices[0], indices[1], indices[2]);
+
+    if (isNodeOnNoSlipWall(indices[0], indices[1], indices[2])) {
+        Vector3D uWall = getWallVelocity(indices[0], indices[1], indices[2]);
+        return computeStagnationWallFlux(surface, totalPressure, totalTemperature, uWall);
+    }
+
     FloatType nx = _inputGrid.getField(InputField::INLET_NX, indices[0], indices[1], indices[2]);
     FloatType ny = _inputGrid.getField(InputField::INLET_NY, indices[0], indices[1], indices[2]);
     FloatType nz = _inputGrid.getField(InputField::INLET_NZ, indices[0], indices[1], indices[2]);
@@ -42,9 +50,6 @@ StateVector BoundaryInlet2D::computeBoundaryFlux(
     }
 
     flowDirection /= flowDirection.magnitude();
-
-    FloatType totalPressure = _inputGrid.getField(InputField::TOTAL_PRESSURE, indices[0], indices[1], indices[2]);
-    FloatType totalTemperature = _inputGrid.getField(InputField::TOTAL_TEMPERATURE, indices[0], indices[1], indices[2]);
     
     StateVector flux = computeSubsonicInletFlux(
         internalConservative, 

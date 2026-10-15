@@ -1,4 +1,5 @@
 #include "output.hpp"
+#include <iomanip>
 
 namespace {
     constexpr const char* DENSITY                   = "Density";
@@ -360,6 +361,7 @@ Vector3D Output::computeWallShearStress(Boundary boundary, size_t i, size_t j, s
     }
     surface = surface.normalized();
     Vector3D tauWall = computeViscousStressVector(tau, surface);
+    tauWall = tauWall - surface * tauWall.dot(surface);
 
     return tauWall;
 }
@@ -427,6 +429,7 @@ void Output::writeHeader(std::ofstream& file) const {
 }
 
 void Output::writeData(std::ofstream& file) const {
+    file << std::setprecision(16);
     for (size_t i=0; i<_ni; ++i){
         for (size_t j=0; j<_nj; ++j){
             for (size_t k=0; k<_nk; ++k){

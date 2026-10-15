@@ -123,6 +123,15 @@ public:
 
     TurbulenceModel getTurbulenceModel() const;
 
+    bool hasTurbulenceEddyViscosityRatio() const {return has("TURBULENCE_EDDY_VISCOSITY_RATIO");}
+    FloatType getTurbulenceEddyViscosityRatio() const {return parseFloat("TURBULENCE_EDDY_VISCOSITY_RATIO", 0.210438);}
+
+    bool hasTurbulenceNuTildeRatio() const {return has("TURBULENCE_NU_TILDE_RATIO");}
+    FloatType getTurbulenceNuTildeRatio() const {return parseFloat("TURBULENCE_NU_TILDE_RATIO", 3.0);}
+
+    bool hasTurbulenceInitNuTildeRatio() const {return has("TURBULENCE_INIT_NU_TILDE_RATIO");}
+    FloatType getTurbulenceInitNuTildeRatio() const {return parseFloat("TURBULENCE_INIT_NU_TILDE_RATIO", 3.0);}
+
     KindSolver getKindSolver() const;
 
     Topology getTopology() const;
@@ -278,6 +287,10 @@ public:
     FloatType computeRampedOutletPressure(const size_t iterCounter, const FloatType outletPressure) const;
 
     FloatType getOutletPressureRampMaxIterations() const {return parseFloat("OUTLET_PRESSURE_RAMP_ITERATIONS", 0.0);}
+
+    FloatType getMassFlowRelaxation() const {return parseFloat("MASS_FLOW_RELAXATION", 0.05);}
+
+    FloatType getMassFlowMaxPressureChange() const {return parseFloat("MASS_FLOW_MAX_PRESSURE_CHANGE", 0.02);}
 
     FloatType getHallTholletCoefficient_KN() const {return parseFloat("HALL_THOLLET_COEFFICIENT_KN");} 
 

@@ -95,7 +95,7 @@ protected:
 
         // Row 1: x-momentum
         res[1] = ((phi - u*u)*nx - u*v*ny - u*w*nz) * dU[0]
-               + ((3.0 - gamma)*u*nx + V) * dU[1]
+               + ((2.0 - gamma)*u*nx + V) * dU[1]
                + (-gm1*v*nx + u*ny) * dU[2]
                + (-gm1*w*nx + u*nz) * dU[3]
                + (gm1*nx) * dU[4];

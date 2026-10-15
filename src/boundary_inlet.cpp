@@ -12,6 +12,12 @@ StateVector BoundaryInlet::computeBoundaryFlux(
     // gather boundary values from config
     FloatType totPressure = _boundaryValues[0];
     FloatType totTemperature = _boundaryValues[1];
+
+    if (isNodeOnNoSlipWall(indices[0], indices[1], indices[2])) {
+        Vector3D uWall = getWallVelocity(indices[0], indices[1], indices[2]);
+        return computeStagnationWallFlux(surface, totPressure, totTemperature, uWall);
+    }
+
     Vector3D flowDirection = {_boundaryValues[2], _boundaryValues[3], _boundaryValues[4]};
 
     if (_referenceFrame == ReferenceFrame::CYLINDRICAL){

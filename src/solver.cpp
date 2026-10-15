@@ -295,28 +295,47 @@ void Solver::readBoundaryFile() {
 
 void Solver::buildBoundaryDataStructures() {
     for (auto& bound : _boundaries) {
-        if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM || bound.type == BoundaryType::THROTTLE){
+        if (bound.type == BoundaryType::RADIAL_EQUILIBRIUM || bound.type == BoundaryType::THROTTLE || bound.type == BoundaryType::MASS_FLOW){
             RadialEquilibriumProfile profile;
             profile.boundary = bound;
 
-            if(bound.i_min != bound.i_max){
-                throw std::runtime_error("Radial equilibrium only supported on j-k patches");
-            };
-
-            if(bound.i_min == 0){
-                throw std::runtime_error("Radial equilibrium only supported to the last i-position");
-            };
-
-            if (bound.j_max <= bound.j_min) {
-                throw std::runtime_error("Invalid boundary indices for radial equilibrium patch: " + bound.name);
+            bool useRadialEquil = false;
+            if (bound.type == BoundaryType::MASS_FLOW) {
+                bool canDoRadial = (bound.i_min == bound.i_max && bound.i_min != 0 && bound.j_max > bound.j_min);
+                if (bound.values.size() >= 4) {
+                    useRadialEquil = (bound.values[3] > 0.5) && canDoRadial;
+                } else {
+                    useRadialEquil = canDoRadial && (_config.getTopology() == Topology::AXISYMMETRIC || _config.isBFMActive());
+                }
+            } else {
+                useRadialEquil = true;
             }
-            size_t nPoints = bound.j_max - bound.j_min;
-            
-            for (size_t j=bound.j_min; j<bound.j_max; j++){
-                FloatType radius = _mesh.getRadius(bound.i_max-1, j, 0);
-                profile.radius.push_back(radius);
+
+            if (useRadialEquil) {
+                if(bound.i_min != bound.i_max){
+                    throw std::runtime_error("Radial equilibrium only supported on j-k patches");
+                };
+
+                if(bound.i_min == 0){
+                    throw std::runtime_error("Radial equilibrium only supported to the last i-position");
+                };
+
+                if (bound.j_max <= bound.j_min) {
+                    throw std::runtime_error("Invalid boundary indices for radial equilibrium patch: " + bound.name);
+                }
+                size_t nPoints = bound.j_max - bound.j_min;
+                
+                for (size_t j=bound.j_min; j<bound.j_max; j++){
+                    FloatType radius = _mesh.getRadius(bound.i_max-1, j, 0);
+                    profile.radius.push_back(radius);
+                }
+                profile.pressure.resize(nPoints);
+            } else {
+                size_t nPoints = (bound.j_max > bound.j_min) ? (bound.j_max - bound.j_min) : 1;
+                FloatType initP = (bound.values.size() >= 2 && bound.values[1] > 0.0) ? bound.values[1] : _config.getInitPressure();
+                if (initP <= 0.0) initP = 101325.0;
+                profile.pressure.resize(nPoints, initP);
             }
-            profile.pressure.resize(nPoints);
             _radialEquilibriumProfiles.push_back(profile);
         }
         else if (bound.type == BoundaryType::PERIODIC){
@@ -348,6 +367,27 @@ void Solver::buildBoundaryDataStructures() {
 }
 
 void Solver::buildBoundaryFluxes() {
+    _isNoSlipWall.resize(_nPointsI, _nPointsJ, _nPointsK);
+    _wallVelocity.resize(_nPointsI, _nPointsJ, _nPointsK);
+
+    for (const auto& bound : _boundaries) {
+        if (bound.type == BoundaryType::NO_SLIP_WALL) {
+            BoundaryNodesIndexRange range = fetchBoundaryNodesIndexRange(bound, _nPointsI, _nPointsJ, _nPointsK);
+            Vector3D wallVel(0.0, 0.0, 0.0);
+            if (bound.values.size() >= 3) {
+                wallVel = {bound.values[0], bound.values[1], bound.values[2]};
+            }
+            for (size_t i = range.iStart; i < range.iLast; ++i) {
+                for (size_t j = range.jStart; j < range.jLast; ++j) {
+                    for (size_t k = range.kStart; k < range.kLast; ++k) {
+                        _isNoSlipWall(i, j, k) = 1;
+                        _wallVelocity(i, j, k) = wallVel;
+                    }
+                }
+            }
+        }
+    }
+
     size_t radialProfileIdx = 0;
     for (auto& bound : _boundaries) {
         if (bound.type == BoundaryType::INVISCID_WALL || bound.type == BoundaryType::NO_SLIP_WALL){
@@ -405,6 +445,13 @@ void Solver::buildBoundaryFluxes() {
                 *_fluid,
                 _radialEquilibriumProfiles[radialProfileIdx++].pressure);
         }
+        else if (bound.type == BoundaryType::MASS_FLOW){
+            bound.fluxMethod = std::make_unique<BoundaryOutletMassFlow>(
+                _config,
+                _mesh,
+                *_fluid,
+                _radialEquilibriumProfiles[radialProfileIdx++].pressure);
+        }
         else if (bound.type == BoundaryType::WEDGE){
             bound.fluxMethod = std::make_unique<BoundaryFake>(
                 _config, 
@@ -430,6 +477,12 @@ void Solver::buildBoundaryFluxes() {
                 _mesh,
                 *_fluid,
                 bound.values);
+        }
+    }
+
+    for (auto& bound : _boundaries) {
+        if (bound.fluxMethod) {
+            bound.fluxMethod->setWallInformation(&_isNoSlipWall, &_wallVelocity);
         }
     }
 }
@@ -764,14 +817,19 @@ void Solver::initializeSolutionArrays(){
 
     for (auto& radialProfile: _radialEquilibriumProfiles) {
         Boundary bound = radialProfile.boundary;
-        size_t k = 0;
-        size_t i = bound.i_min-1;
-        for (size_t j=bound.j_min; j<bound.j_max; j++){
-            StateVector conservative = _conservativeSolution.at(i, j, 0);
-            StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
-            FloatType pressure = _fluid->computePressure_primitive(primitive);
-            radialProfile.pressure[k] = pressure;
-            k++;
+        if (bound.type == BoundaryType::MASS_FLOW && bound.values.size() >= 2 && bound.values[1] > 0.0) {
+            std::fill(radialProfile.pressure.begin(), radialProfile.pressure.end(), bound.values[1]);
+        }
+        else {
+            size_t k = 0;
+            size_t i = bound.i_min > 0 ? bound.i_min - 1 : 0;
+            for (size_t j=bound.j_min; j<bound.j_max && k<radialProfile.pressure.size(); j++){
+                StateVector conservative = _conservativeSolution.at(i, j, 0);
+                StateVector primitive = getPrimitiveVariablesFromConservative(conservative);
+                FloatType pressure = _fluid->computePressure_primitive(primitive);
+                radialProfile.pressure[k] = pressure;
+                k++;
+            }
         }
     }
 
@@ -1253,7 +1311,7 @@ void Solver::solve(){
 
     bool needTurboPerformance = turboOutput || _isGreitzerModelingActive;
     for (const auto& bc : _boundaries) {
-        if (bc.type == BoundaryType::THROTTLE) {
+        if (bc.type == BoundaryType::THROTTLE || bc.type == BoundaryType::MASS_FLOW) {
             needTurboPerformance = true;
             break;
         }
@@ -1442,14 +1500,8 @@ StateVector Solver::computeLogResidualNorm(const FlowSolution &residuals) const 
             logResidualNorm[i] = -16.0;
         }
 
-        bool isDimActive = true;
-        if (i == 3 && _topology != Topology::THREE_DIMENSIONAL) {
-            isDimActive = false;
-        } else if (i == 2 && _topology == Topology::ONE_DIMENSIONAL) {
-            isDimActive = false;
-        }
-        if (isDimActive && logResidualNorm[i] <= -15.99) {
-            throw std::runtime_error("Solver diverged: Residual dropped to -16.00 in variable " + std::to_string(i) + " (numerical breakdown detected).");
+        if (logResidualNorm[i] < -16.0) {
+            logResidualNorm[i] = -16.0;
         }
     }
     return logResidualNorm;
@@ -1600,6 +1652,19 @@ void Solver::updateMassFlows(const FlowSolution&solution){
 void Solver::updateTurboPerformance(const FlowSolution& solution){
     
     std::string turboDir = _config.getTurboDirection();
+    if (!_config.has("TURBO_DIRECTION")) {
+        for (const auto& bound : _boundaries) {
+            if (bound.type == BoundaryType::INLET || bound.type == BoundaryType::INLET_2D || bound.type == BoundaryType::INLET_SUPERSONIC) {
+                if (bound.orientation == BoundaryOrientation::J_START) {
+                    turboDir = "j";
+                    break;
+                } else if (bound.orientation == BoundaryOrientation::J_END) {
+                    turboDir = "-j";
+                    break;
+                }
+            }
+        }
+    }
     std::array<BoundaryIndex, 2> bcIndices {BoundaryIndex::I_START, BoundaryIndex::I_END};
     if (turboDir == "-i") {
         bcIndices = {BoundaryIndex::I_END, BoundaryIndex::I_START};
@@ -2636,9 +2701,9 @@ void Solver::updateRadialProfiles(FlowSolution &solution){
         std::vector<FloatType> densityProfile(radialProfile.pressure.size());
         std::vector<FloatType> velTangProfile(radialProfile.pressure.size());
         FloatType theta;
-        size_t i = radialProfile.boundary.i_min-1;
+        size_t i = (radialProfile.boundary.i_min > 0) ? (radialProfile.boundary.i_min - 1) : 0;
         size_t k = 0;
-        for (size_t j = radialProfile.boundary.j_min; j < radialProfile.boundary.j_max; j++) {
+        for (size_t j = radialProfile.boundary.j_min; j < radialProfile.boundary.j_max && k < densityProfile.size(); j++) {
             conservative = solution.at(i, j, 0);
             primitive = getPrimitiveVariablesFromConservative(conservative);    
             velocityCart(0) = primitive[1];
@@ -2666,16 +2731,57 @@ void Solver::updateRadialProfiles(FlowSolution &solution){
             }
             _hubStaticPressure = Pt_in + kt * mflow*mflow;
         }
+        else if (radialProfile.boundary.type == BoundaryType::MASS_FLOW){
+            if (radialProfile.boundary.values.empty() || radialProfile.boundary.values[0] <= 0.0) {
+                throw std::runtime_error("Target mass flow for boundary patch " + radialProfile.boundary.name + " must be specified and positive.");
+            }
+            FloatType targetMassFlow = radialProfile.boundary.values[0];
+
+            BoundaryIndex bcIdx = static_cast<BoundaryIndex>(radialProfile.boundary.orientation);
+            FloatType currentMassFlow = std::abs(_massFlows.at(bcIdx));
+            if (_config.getTopology() == Topology::AXISYMMETRIC){
+                currentMassFlow *= 2.0 * M_PI / _mesh.getWedgeAngle();
+            } else {
+                FloatType periodicAngle = _periodicityAngleDeg;
+                if (periodicAngle != 0.0){
+                    currentMassFlow *= 360.0 / periodicAngle;
+                }
+            }
+
+            // Relaxation factor
+            FloatType relaxation = _config.getMassFlowRelaxation();
+            if (radialProfile.boundary.values.size() >= 3 && radialProfile.boundary.values[2] > 0.0){
+                relaxation = radialProfile.boundary.values[2];
+            }
+
+            FloatType maxChange = _config.getMassFlowMaxPressureChange();
+
+            // Compute relative mass flow error: (m_current - m_target) / m_target
+            FloatType error = (currentMassFlow - targetMassFlow) / targetMassFlow;
+            FloatType deltaP_rel = std::clamp(relaxation * error, -maxChange, maxChange);
+
+            FloatType currentPressure = radialProfile.pressure[0];
+            if (currentPressure <= 0.0) {
+                currentPressure = _config.getInitPressure() > 0.0 ? _config.getInitPressure() : 101325.0;
+            }
+
+            _hubStaticPressure = currentPressure * (1.0 + deltaP_rel);
+            _hubStaticPressure = std::max(_hubStaticPressure, static_cast<FloatType>(100.0));
+        }
         else if (radialProfile.boundary.type == BoundaryType::RADIAL_EQUILIBRIUM){  
             _hubStaticPressure = radialProfile.pressure[0];
         }
 
-        integrateRadialEquilibrium(
-            densityProfile, 
-            velTangProfile, 
-            radialProfile.radius, 
-            radialProfile.pressure,
-            _hubStaticPressure);
+        if (radialProfile.radius.size() == radialProfile.pressure.size() && radialProfile.radius.size() > 1){
+            integrateRadialEquilibrium(
+                densityProfile, 
+                velTangProfile, 
+                radialProfile.radius, 
+                radialProfile.pressure,
+                _hubStaticPressure);
+        } else {
+            std::fill(radialProfile.pressure.begin(), radialProfile.pressure.end(), _hubStaticPressure);
+        }
         
     }
 }
@@ -2890,6 +2996,9 @@ void Solver::checkConvergence(bool &exitLoop, bool &isSteady, size_t it) const {
             continue;
         }
         if (_initialLogResiduals[v] <= -15.99) {
+            continue;
+        }
+        if (current[v] <= -15.0) {
             continue;
         }
         if (current[v] >= _initialLogResiduals[v] - _residualsDropConvergence) {

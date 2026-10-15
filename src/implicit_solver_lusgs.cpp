@@ -79,7 +79,7 @@ void ImplicitSolverLUSGS::solveCorrection(
                     if (is3D) {
                         sTotSq += surfacesK(i, j, k).magnitudeSquared() + surfacesK(i, j, k + 1).magnitudeSquared();
                     }
-                    sigmaV = (muTot / (p[0] * vol)) * sTotSq;
+                    sigmaV = 2.0 * (muTot / (p[0] * vol)) * sTotSq;
                 }
 
                 FloatType vol = volumes(i, j, k);

@@ -28,6 +28,7 @@
 #include "boundary_outlet_radial_equilibrium.hpp"
 #include "boundary_fake.hpp"
 #include "boundary_outlet_throttle.hpp"
+#include "boundary_outlet_mass_flow.hpp"
 #include "boundary_transparent.hpp"
 #include "boundary_farfield.hpp"
 #include "implicit_solver_base.hpp"
@@ -319,6 +320,8 @@ private:
     Matrix3D<FloatType> _timeStep;
 
     Matrix3D<FloatType> _wallDistance;
+    Matrix3D<uint8_t> _isNoSlipWall;
+    Matrix3D<Vector3D> _wallVelocity;
     
     FloatType _currentTime {0.0};
     std::vector<FloatType> _time;

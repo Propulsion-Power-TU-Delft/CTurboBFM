@@ -11,6 +11,12 @@ StateVector BoundaryInletSupersonic::computeBoundaryFlux(
 
     FloatType pressureBoundary = _boundaryValues[0];
     FloatType temperatureBoundary = _boundaryValues[1];
+
+    if (isNodeOnNoSlipWall(indices[0], indices[1], indices[2])) {
+        Vector3D uWall = getWallVelocity(indices[0], indices[1], indices[2]);
+        return computeStagnationWallFlux(surface, pressureBoundary, temperatureBoundary, uWall);
+    }
+
     Vector3D velocityBoundary({_boundaryValues[2], _boundaryValues[3], _boundaryValues[4]});
     FloatType densityBoundary = _fluid.computeDensity_p_T(pressureBoundary, temperatureBoundary);
     FloatType energyBoundary = _fluid.computeStaticEnergy_p_rho(pressureBoundary, densityBoundary);

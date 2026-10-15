@@ -16,6 +16,22 @@ StateVector BoundaryBase::computeSubsonicInletFlux(
     Vector3D velocityInt({primitive[1], primitive[2], primitive[3]});
     FloatType soundSpeedInt = _fluid.computeSoundSpeed_rho_u_et(primitive[0], velocityInt, primitive[4]);
 
+    Vector3D normal = surface / surface.magnitude();
+    FloatType unInt = velocityInt.dot(normal);
+    FloatType Z = primitive[0] * soundSpeedInt;
+    FloatType pInt = _fluid.computePressure_rho_u_et(primitive[0], velocityInt, primitive[4]);
+
+    // Outflow normal component of inflow direction (negative for inward flow)
+    FloatType Cgeom = flowDirection.dot(normal);
+    if (Cgeom >= 0.0) {
+        Cgeom = -1.0;
+    }
+
+    // Outgoing acoustic characteristic carried from the interior towards the boundary:
+    // Along dx/dt = un + a > 0, (p + Z * un) is constant.
+    // Therefore at the boundary: p_b + Z * un_b = p_int + Z * un_int
+    FloatType Rout = pInt + Z * unInt;
+
     FloatType densityBound = 0.0;
     FloatType energyBound = 0.0;
     FloatType totEnergyBound = 0.0;
@@ -24,50 +40,48 @@ StateVector BoundaryBase::computeSubsonicInletFlux(
     if (auto fluidIdeal = dynamic_cast<const FluidIdeal*>(&_fluid)) {
         FloatType gamma = fluidIdeal->getGamma();
         FloatType R = fluidIdeal->getRconstant();
-        FloatType Jm = - velocityInt.magnitude() + 2.0*soundSpeedInt / (gamma - 1.0);
-
-        // Solve the quadratic equation for the speed of sound
-        FloatType alpha = 1.0 / (gamma - 1.0) + 2.0 / std::pow((gamma - 1.0), 2);
-        FloatType beta = -2.0 * Jm / (gamma - 1.0);
         FloatType cp = gamma * R / (gamma - 1.0);
-        FloatType totEnthalpyBoundary = cp * totTemperatureBoundary;
-        FloatType zeta = 0.5 * Jm * Jm - totEnthalpyBoundary;
-        FloatType soundSpeedBound = std::max((-beta + std::sqrt(beta*beta - 4.0*alpha*zeta))/2.0/alpha,
-                                             (-beta - std::sqrt(beta*beta - 4.0*alpha*zeta))/2.0/alpha);
+        FloatType htIn = cp * totTemperatureBoundary;
 
-        // reconstruct the boundary state                                     
-        FloatType velocityBoundMag = 2.0*soundSpeedBound / (gamma - 1.0) - Jm;
-        FloatType normalMachBound = velocityBoundMag / soundSpeedBound;
-        FloatType pressureBound = _fluid.computeStaticPressure_pt_M(totPressureBoundary, normalMachBound);
-        FloatType temperatureBound = _fluid.computeStaticTemperature_Tt_M(totTemperatureBoundary, normalMachBound);
-        densityBound = _fluid.computeDensity_p_T(pressureBound, temperatureBound);
-        energyBound = _fluid.computeStaticEnergy_p_rho(pressureBound, densityBound);
+        // Subsonic pressure search range [0.05*pt, pt]
+        FloatType pLow = 0.05 * totPressureBoundary;
+        FloatType pHigh = 0.999999 * totPressureBoundary;
+        FloatType pBound = 0.5 * (pLow + pHigh);
+
+        for (int iter = 0; iter < 30; ++iter) {
+            FloatType pMid = 0.5 * (pLow + pHigh);
+            FloatType TMid = totTemperatureBoundary * std::pow(pMid / totPressureBoundary, (gamma - 1.0) / gamma);
+            FloatType hMid = cp * TMid;
+            FloatType VMid = std::sqrt(2.0 * std::max(static_cast<FloatType>(0.0), htIn - hMid));
+            FloatType residual = pMid + Z * Cgeom * VMid - Rout;
+
+            if (std::abs(residual) < 1e-4 * totPressureBoundary) {
+                pBound = pMid;
+                break;
+            }
+            if (residual < 0.0) {
+                pLow = pMid;
+            } else {
+                pHigh = pMid;
+            }
+            pBound = pMid;
+        }
+
+        FloatType TBound = totTemperatureBoundary * std::pow(pBound / totPressureBoundary, (gamma - 1.0) / gamma);
+        FloatType hBound = cp * TBound;
+        FloatType velocityBoundMag = std::sqrt(2.0 * std::max(static_cast<FloatType>(0.0), htIn - hBound));
         velocityBound = flowDirection * velocityBoundMag;
+        densityBound = pBound / (R * TBound);
+        energyBound = fluidIdeal->computeStaticEnergy_p_rho(pBound, densityBound);
         totEnergyBound = energyBound + 0.5 * velocityBound.dot(velocityBound);
     }
     else {
         // General acoustic characteristic boundary condition for real fluids
-        Vector3D normal = surface / surface.magnitude();
-        FloatType unInt = velocityInt.dot(normal);
-        FloatType Z = primitive[0] * soundSpeedInt;
-        FloatType pInt = _fluid.computePressure_rho_u_et(primitive[0], velocityInt, primitive[4]);
-
-        // Outflow normal component of inflow direction (negative for inward flow)
-        FloatType Cgeom = flowDirection.dot(normal);
-        if (Cgeom >= 0.0) {
-            Cgeom = -1.0;
-        }
-
-        // Outgoing characteristic carried from the interior towards the boundary:
-        // Along dx/dt = un + a > 0, (p + Z * un) is constant.
-        // Therefore at the boundary: p_b + Z * un_b = p_int + Z * un_int
-        FloatType Rout = pInt + Z * unInt;
-
         FloatType sIn = _fluid.computeEntropy_p_T(totPressureBoundary, totTemperatureBoundary);
         FloatType htIn = _fluid.computeEnthalpy_p_s(totPressureBoundary, sIn);
 
-        // Subsonic pressure search range [0.4*pt, pt]
-        FloatType pLow = 0.4 * totPressureBoundary;
+        // Subsonic pressure search range [0.05*pt, pt]
+        FloatType pLow = 0.05 * totPressureBoundary;
         FloatType pHigh = 0.999999 * totPressureBoundary;
         FloatType pBound = 0.5 * (pLow + pHigh);
 
@@ -106,6 +120,61 @@ StateVector BoundaryBase::computeSubsonicInletFlux(
         totEnergyBound});
         
     StateVector flux = computeAdvectionFluxFromPrimitive(primitiveBoundary, surface, _fluid);
+    return flux;
+}
+
+StateVector BoundaryBase::computeStagnationWallFlux(
+    const Vector3D& surface, 
+    FloatType totPressure, 
+    FloatType totTemperature, 
+    const Vector3D& wallVelocity) {
+
+    FloatType uMag = wallVelocity.magnitude();
+    FloatType pBound = totPressure;
+    FloatType TBound = totTemperature;
+
+    if (auto fluidIdeal = dynamic_cast<const FluidIdeal*>(&_fluid)) {
+        FloatType gamma = fluidIdeal->getGamma();
+        FloatType R = fluidIdeal->getRconstant();
+        FloatType cp = gamma * R / (gamma - 1.0);
+        if (uMag > 0.0) {
+            TBound = totTemperature - 0.5 * uMag * uMag / cp;
+            if (TBound < 0.01 * totTemperature) {
+                TBound = 0.01 * totTemperature;
+            }
+            pBound = totPressure * std::pow(TBound / totTemperature, gamma / (gamma - 1.0));
+        }
+    } else {
+        if (uMag > 0.0) {
+            FloatType sIn = _fluid.computeEntropy_p_T(totPressure, totTemperature);
+            FloatType htIn = _fluid.computeEnthalpy_p_s(totPressure, sIn);
+            FloatType hBound = htIn - 0.5 * uMag * uMag;
+            FloatType pLow = 0.5 * totPressure;
+            FloatType pHigh = totPressure;
+            for (int iter = 0; iter < 20; ++iter) {
+                FloatType pMid = 0.5 * (pLow + pHigh);
+                FloatType hMid = _fluid.computeEnthalpy_p_s(pMid, sIn);
+                if (hMid < hBound) {
+                    pLow = pMid;
+                } else {
+                    pHigh = pMid;
+                }
+            }
+            pBound = 0.5 * (pLow + pHigh);
+        }
+    }
+
+    Vector3D normal = surface / surface.magnitude();
+
+    // Solid wall adheres to fluid (no penetration); convective mass and energy fluxes are zero.
+    // Momentum flux is the stagnation pressure force.
+    StateVector flux {};
+    flux[0] = 0.0;
+    flux[1] = pBound * normal.x();
+    flux[2] = pBound * normal.y();
+    flux[3] = pBound * normal.z();
+    flux[4] = 0.0;
+
     return flux;
 }
 

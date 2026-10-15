@@ -7,8 +7,8 @@ from unsflow.grid.functions import transfinite_grid_generation, plot_twodimensio
 
 
 OUTPUT_FOLDER = 'Grid'
-NI = 150
-NJ = 100
+NI = 75
+NJ = 50
 NK = 1
 STREAMWISE_COEFF = 1
 SPANWISE_COEFF = 1

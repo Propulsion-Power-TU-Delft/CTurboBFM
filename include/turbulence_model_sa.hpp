@@ -105,6 +105,6 @@ private:
     Matrix3D<FloatType> _deltaNu;
     Matrix3D<FloatType> _diagD;
     FloatType _initNu;
-    const FloatType _farfieldNuHatScaling = 3.0; // value used at inlet and farfields
-    const FloatType _initialNuHatScaling = 0.1; // value used internally
+    FloatType _farfieldNuHatScaling = 3.0; // value used at inlet and farfields
+    FloatType _initialNuHatScaling = 3.0; // value used internally
 };

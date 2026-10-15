@@ -124,6 +124,10 @@ class Vector3D {
         }
 };
 
+inline Vector3D operator*(FloatType scalar, const Vector3D& v) {
+    return v * scalar;
+}
+
 
 
 enum class BodyForceModel {
@@ -182,6 +186,7 @@ enum class BoundaryType {
     WEDGE,
     PERIODIC,
     THROTTLE,
+    MASS_FLOW,
     INLET_2D,
     NO_SLIP_WALL,
     TRANSPARENT,
@@ -208,6 +213,10 @@ inline BoundaryType boundaryTypeFromString(const std::string& s)
         {"wedge", BoundaryType::WEDGE},
         {"periodic", BoundaryType::PERIODIC},
         {"throttle", BoundaryType::THROTTLE},
+        {"mass_flow", BoundaryType::MASS_FLOW},
+        {"outlet_mass_flow", BoundaryType::MASS_FLOW},
+        {"massflow", BoundaryType::MASS_FLOW},
+        {"mass_flow_rate", BoundaryType::MASS_FLOW},
         {"inlet_2d", BoundaryType::INLET_2D},
         {"no_slip_wall", BoundaryType::NO_SLIP_WALL},
         {"transparent", BoundaryType::TRANSPARENT},

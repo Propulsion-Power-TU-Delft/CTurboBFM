@@ -31,6 +31,30 @@ public:
         const FlowSolution& flowSolution, 
         const size_t& iterCounter) = 0;
 
+    /**
+     * @brief Associate no-slip wall information with boundary conditions.
+     */
+    void setWallInformation(
+        const Matrix3D<uint8_t>* isNoSlipWall, 
+        const Matrix3D<Vector3D>* wallVelocity = nullptr) {
+        _isNoSlipWall = isNoSlipWall;
+        _wallVelocity = wallVelocity;
+    }
+
+    bool isNodeOnNoSlipWall(size_t i, size_t j, size_t k) const {
+        if (!_config.isViscosityActive()) return false;
+        if (!_isNoSlipWall) return false;
+        if (i >= _isNoSlipWall->sizeI() || j >= _isNoSlipWall->sizeJ() || k >= _isNoSlipWall->sizeK()) return false;
+        return (*_isNoSlipWall)(i, j, k) != 0;
+    }
+
+    Vector3D getWallVelocity(size_t i, size_t j, size_t k) const {
+        if (_wallVelocity && i < _wallVelocity->sizeI() && j < _wallVelocity->sizeJ() && k < _wallVelocity->sizeK()) {
+            return (*_wallVelocity)(i, j, k);
+        }
+        return Vector3D(0.0, 0.0, 0.0);
+    }
+
 protected:
 
     /** Common interface for subsonic inlet boundary types. */
@@ -40,6 +64,13 @@ protected:
         const FloatType& totPressureBoundary, 
         const FloatType& totTemperatureBoundary, 
         const Vector3D& flowDirection);
+
+    /** Stagnation wall flux condition for inlet faces on no-slip wall nodes. */
+    StateVector computeStagnationWallFlux(
+        const Vector3D& surface, 
+        FloatType totPressure, 
+        FloatType totTemperature, 
+        const Vector3D& wallVelocity);
     
     /** Common interface for outlet boundary types. */
     StateVector computeOutletFlux(
@@ -53,6 +84,8 @@ protected:
     const Config& _config;
     const Mesh& _mesh;
     const FluidBase& _fluid;
+    const Matrix3D<uint8_t>* _isNoSlipWall = nullptr;
+    const Matrix3D<Vector3D>* _wallVelocity = nullptr;
         
 };
 
