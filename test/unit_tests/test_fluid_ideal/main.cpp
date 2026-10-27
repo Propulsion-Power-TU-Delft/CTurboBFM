@@ -143,6 +143,24 @@ TEST(FluidIdealTest, TestThermodynamicDerivatives_and_pT) {
     EXPECT_NEAR(fluid.computeSoundSpeed_p_T(p, T), a_expected, 1e-10);
 }
 
+TEST(FluidIdealTest, TestTotalEfficiencyCompressorAndTurbine) {
+    FloatType gamma {1.4}, R {287.05};
+    FluidIdeal fluid(gamma, R);
+    FloatType exp = (gamma - 1.0) / gamma;
+
+    // Compressor case: PRtt = 2.0, eta_comp = 0.85
+    FloatType pr_comp = 2.0;
+    FloatType eta_comp_expected = 0.85;
+    FloatType tr_comp = 1.0 + (std::pow(pr_comp, exp) - 1.0) / eta_comp_expected;
+    EXPECT_NEAR(fluid.computeTotalEfficiency_PRtt_TRt(pr_comp, tr_comp), eta_comp_expected, 1e-12);
+
+    // Turbine case: PRtt = 0.5 (expansion ratio 2.0), eta_turb = 0.90
+    FloatType pr_turb = 0.5;
+    FloatType eta_turb_expected = 0.90;
+    FloatType tr_turb = 1.0 - eta_turb_expected * (1.0 - std::pow(pr_turb, exp));
+    EXPECT_NEAR(fluid.computeTotalEfficiency_PRtt_TRt(pr_turb, tr_turb), eta_turb_expected, 1e-12);
+}
+
 int main(int argc, char** argv)
 {
     testing::InitGoogleTest(&argc, argv);

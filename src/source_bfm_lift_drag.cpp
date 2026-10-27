@@ -37,8 +37,9 @@ StateVector SourceBFMLiftDrag::computeInviscidComponent(
     
     FloatType w = _relVelCartesian.magnitude();
     FloatType beta0 = _mesh.getInputFields(InputField::LIFT_DRAG_BFM_BETA0, i, j, k);
+    FloatType orientSign = (_normalCamberTangential >= 0.0) ? 1.0 : -1.0;
     FloatType forceMag = (
-        0.5 * w*w * 2.0 * M_PI / _staggeredPitch * (-_flowAngle + beta0)
+        0.5 * w*w * 2.0 * M_PI / _staggeredPitch * orientSign * (-_flowAngle + beta0)
     );
     
     Vector3D forceCylindrical = _inviscidForceDirCylindrical * forceMag;

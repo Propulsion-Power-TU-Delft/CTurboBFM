@@ -362,8 +362,17 @@ void FluidReal::computeInitFields(
 }
 
 FloatType FluidReal::computeTotalEfficiency_PRtt_TRt(FloatType pressureRatio, FloatType temperatureRatio) const {
-    FloatType eta = (std::pow(pressureRatio, (_nominalGamma - 1.0) / _nominalGamma) - 1.0) / (temperatureRatio - 1.0);
-    return eta;
+    FloatType deltaT = temperatureRatio - 1.0;
+    FloatType deltaTs = std::pow(pressureRatio, (_nominalGamma - 1.0) / _nominalGamma) - 1.0;
+    if (std::abs(deltaT) < 1e-12) return 1.0;
+    if (deltaT >= 0.0) {
+        // Compressor / pump: isentropic work / actual work
+        return deltaTs / deltaT;
+    } else {
+        // Turbine / expander: actual work / isentropic work
+        if (std::abs(deltaTs) < 1e-12) return 1.0;
+        return deltaT / deltaTs;
+    }
 }
 
 void FluidReal::setTransportProperties(const Config &config) {
